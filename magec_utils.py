@@ -614,8 +614,8 @@ def plot_train_valid(train, valid, feature):
     pdf_x_v, pdf_y_v, avg_v, var_v = pdf(valid)
     # Figure
     plt.figure(figsize=(10, 8))
-    plt.hist(train, 30, normed=True, alpha=0.5)
-    plt.hist(valid, 30, normed=True, alpha=0.5)
+    plt.hist(train, 30, density=True, alpha=0.5)
+    plt.hist(valid, 30, density=True, alpha=0.5)
     plt.plot(pdf_x_t, pdf_y_t, 'b--')
     plt.plot(pdf_x_v, pdf_y_v, 'g--')
     plt.legend(["train fit", "valid fit", "train", "valid"])
@@ -628,7 +628,7 @@ def plot_feature(df, feature, ax=None):
     pdf_x, pdf_y, avg, var = pdf(data)
     if ax is None:
         fig, ax = plt.subplots(figsize=(10, 8))
-    ax.hist(data, 30, normed=True, alpha=0.5)
+    ax.hist(data, 30, density=True, alpha=0.5)
     ax.plot(pdf_x, pdf_y, 'b--')
     ax.set_title("{} (mean: {:.2g}, std: {:.2g})".format(feature, avg, np.sqrt(var)))
     return ax
