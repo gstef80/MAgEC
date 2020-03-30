@@ -108,7 +108,8 @@ def z_perturbation(model, target_data,
             idx = tuple([(slice(None))] * n_case_inds + [tt])
 
             if var_name in binary:
-                epsilon = np.argmax(np.bincount(target_data[var_name]))
+                epsilon = target_data[var_name].value_counts().idxmax()  # most frequent value
+                # epsilon = np.argmax(np.bincount(target_data[var_name]))
             else:
                 epsilon = epsilon_value
 
