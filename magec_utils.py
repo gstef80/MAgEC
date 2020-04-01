@@ -77,10 +77,13 @@ def z_perturbation(model, target_data,
     For a binary classification task, where 1 denotes a "bad" outcome, a good perturbation
     is expected to result in a negative score_comparison (assuming monotonic score_preprocessing).
     '''
-
     probs_orig = predict(model, target_data)
-
     logit_orig = score_preprocessing(probs_orig)
+    logit_data = target_data.copy()
+    logit_data_cols = logit_data.columns
+    logit_data['logit_orig'] = logit_orig
+    logit_data['probs_orig'] = probs_orig
+    logit_data = logit_data.drop(logit_data_cols, axis=1)
 
     if features is None:
         features = target_data.columns.unique()
@@ -102,14 +105,13 @@ def z_perturbation(model, target_data,
     prob_deltas_per_cell = pd.DataFrame(index=target_data.index,
                                         columns=pd.Index(hier_col_name_generator(categories),
                                                          name='features'))
-
     for tt in timepoints:
         for var_name in target_data.columns:
+
             idx = tuple([(slice(None))] * n_case_inds + [tt])
 
             if var_name in binary:
                 epsilon = target_data[var_name].value_counts().idxmax()  # most frequent value
-                # epsilon = np.argmax(np.bincount(target_data[var_name]))
             else:
                 epsilon = epsilon_value
 
@@ -117,15 +119,16 @@ def z_perturbation(model, target_data,
 
             target_data_pert.loc[idx, var_name] = epsilon  # z-value (=0 for numerical values)
 
-            probs = predict(model, target_data_pert)
+            probs = predict(model, target_data_pert.loc[idx, :])
 
             logit = score_preprocessing(probs)
 
-            logit_diff = score_comparison(logit_orig, logit)
+            logit_orig_sliced = logit_data.loc[idx, 'logit_orig']
+            logit_diff = score_comparison(logit_orig_sliced, logit)
 
             prob_deltas_per_cell.loc[idx, var_name] = logit_diff
 
-            prob_deltas_per_cell.loc[idx, 'orig_prob'] = probs_orig
+            prob_deltas_per_cell.loc[idx, 'orig_prob'] = logit_data.loc[idx, 'probs_orig']
             prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = probs
 
     return prob_deltas_per_cell.astype(float)
