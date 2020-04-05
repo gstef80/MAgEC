@@ -58,6 +58,100 @@ def predict(model, data):
     return probs
 
 
+def zero_pad(df, length=None):
+    """
+    Given a MAgEC dataframe (indexed with timepoint and case) zero-pad all features/columns
+    """
+    x = list()
+    y = list()
+    z = list()
+
+    # assert 'timepoint' and 'case' exist in either index or columns
+    assert 'timepoint' in df.index.names, "mising 'timepoint' from index"
+    assert 'case' in df.index.names, "mising 'case' from index"
+
+    if length is None:
+        length = len(df.index.get_level_values('timepoint').unique())
+
+    # use all features except for 'label', 'case' and 'timepoint'
+    series_cols = list(set(df.columns) - {'case', 'timepoint', 'label'})
+
+    for idx, fname in df.groupby(level='case', group_keys=False):
+
+        if 'label' in df.columns:
+            y_data = np.array(fname['label'].values[0])
+            y.append(y_data)
+
+        tmp = fname[series_cols].astype(float).values  # get all features as matrix of floats
+        x_data = np.zeros([length, tmp.shape[1]])  # prepare zero pad matrix
+        x_data[:tmp.shape[0], :] = tmp  # zero pad
+        x.append(x_data)
+        # format for pandas dataframe with columns containg time-series
+        series = [[x_data[i, j] for i in range(x_data.shape[0])] for j in range(x_data.shape[1])]
+
+        if 'label' in df.columns:
+            z.append(pd.Series(series + [idx, y_data],
+                               index=series_cols + ['case', 'label']))
+        else:
+            z.append(pd.Series(series + [idx],
+                               index=series_cols + ['case']))
+    x = np.array(x)
+    y = np.array(y)
+    z = pd.DataFrame.from_records(z)
+
+    return x, y, z
+
+
+def slice_series(target_data, tt, reverse=True):
+    if reverse:
+        df = target_data.loc[target_data.index.get_level_values('timepoint') >= tt]
+    else:
+        df = target_data.loc[target_data.index.get_level_values('timepoint') <= tt]
+    return df
+
+
+def static_prediction(model, target_data, score_preprocessing,
+                      timepoint, var_name, epsilons, label='orig'):
+    idx = target_data.index.get_level_values('timepoint') == timepoint
+    if label == 'orig':
+        df = target_data.loc[idx].copy()
+    elif label == 'perturb':
+        df = target_data.loc[idx].copy()
+        df.loc[:, var_name] = epsilons[var_name]  # perturb to new value
+    else:
+        raise ValueError("label must be either 'orig' or' 'perturb")
+    probs = predict(model, df)
+    logits = score_preprocessing(probs)
+    df_cols = df.columns
+    df['probs_{}'.format(label)] = probs
+    df['logit_{}'.format(label)] = logits
+    df = df.drop(df_cols, axis=1)
+    return df
+
+
+def series_prediction(model, target_data, score_preprocessing,
+                      timepoint, reverse, pad, var_name, epsilons, label='orig'):
+    if label == 'orig':
+        df = target_data.copy()
+    elif label == 'perturb':
+        df = target_data.copy()
+        idx = df.index.get_level_values('timepoint') == timepoint
+        df.loc[idx, var_name] = epsilons[var_name]  # perturb to new value
+    else:
+        raise ValueError("label must be either 'orig' or' 'perturb")
+    df = slice_series(df, timepoint, reverse=reverse)
+    x_series, _, df_vector = zero_pad(df, length=pad)
+    df_cols = list(set(df_vector.columns) - {'case'})
+    probs = predict(model, x_series)
+    logits = score_preprocessing(probs)
+    df_vector['probs_{}'.format(label)] = probs
+    df_vector['logit_{}'.format(label)] = logits
+    df_vector['timepoint'] = timepoint
+    df_vector = df_vector.set_index(['case', 'timepoint'])
+    df_vector = df_vector.drop(df_cols, axis=1)
+    return df_vector.loc[df_vector.index.get_level_values('timepoint') == timepoint]
+
+
 def z_perturbation(model, target_data,
                    score_preprocessing=get_logit,
                    score_comparison=lambda x_baseline, x: x - x_baseline,
@@ -66,24 +160,38 @@ def z_perturbation(model, target_data,
                    features=None,
                    binary=None,
                    timepoint_level='timepoint',
-                   epsilon_value=0):
+                   epsilon_value=0,
+                   reverse=True,
+                   timeseries=False):
     '''
     Main method for computing a MAgEC. Assumes 'scaled/normalized' features in target data.
-
-    Supporting 2 types of variables:
-    - numeric / floats
-    - binary / boolean
-    Default score_comparison subtracts perturbed output from original.
-    For a binary classification task, where 1 denotes a "bad" outcome, a good perturbation
-    is expected to result in a negative score_comparison (assuming monotonic score_preprocessing).
+        Supporting 2 types of variables:
+        - numeric / floats
+        - binary / boolean
+        Default score_comparison subtracts perturbed output from original.
+        For a binary classification task, where 1 denotes a "bad" outcome, a good perturbation
+        is expected to result in a negative score_comparison (assuming monotonic score_preprocessing).
+    :param model:
+    :param target_data:
+    :param score_preprocessing:
+    :param score_comparison:
+    :param sort_categories:
+    :param categories:
+    :param features:
+    :param binary:
+    :param timepoint_level:
+    :param epsilon_value:
+    :param reverse:
+    :param timeseries:
+    :return:
     '''
-    probs_orig = predict(model, target_data)
-    logit_orig = score_preprocessing(probs_orig)
-    logit_data = target_data.copy()
-    logit_data_cols = logit_data.columns
-    logit_data['logit_orig'] = logit_orig
-    logit_data['probs_orig'] = probs_orig
-    logit_data = logit_data.drop(logit_data_cols, axis=1)
+    # assert 'timepoint' and 'case' exist in either index or columns
+    assert 'timepoint' in target_data.index.names, "mising 'timepoint' from index"
+    assert 'case' in target_data.index.names, "mising 'case' from index"
+
+    timepoints = list(sorted(target_data.index.get_level_values(timepoint_level).unique()))
+    if reverse:
+        timepoints = list(reversed(timepoints))
 
     if features is None:
         features = target_data.columns.unique()
@@ -94,42 +202,74 @@ def z_perturbation(model, target_data,
         binary = target_data.apply(lambda x: len(np.unique(x)), ) <= 2
         binary = binary[binary].index.tolist()
 
+    epsilons = dict()
+    for var_name in features:
+        if var_name in binary:
+            epsilons[var_name] = target_data[var_name].value_counts().idxmax()  # most frequent value
+        else:
+            epsilons[var_name] = epsilon_value
+
     if categories is None:
         categories = get_column_categories(target_data[features], sort=sort_categories)
-
-    timepoints = target_data.index.get_level_values(timepoint_level).unique()
-    cases = target_data.index.to_frame().drop('timepoint', axis=1).drop_duplicates().values
-
-    n_case_inds = cases.shape[1]
 
     prob_deltas_per_cell = pd.DataFrame(index=target_data.index,
                                         columns=pd.Index(hier_col_name_generator(categories),
                                                          name='features'))
+
     for tt in timepoints:
-        for var_name in target_data.columns:
 
-            idx = tuple([(slice(None))] * n_case_inds + [tt])
+        # print("Timepoint {}".format(tt))
 
-            if var_name in binary:
-                epsilon = target_data[var_name].value_counts().idxmax()  # most frequent value
+        if not timeseries:
+            baseline = static_prediction(model,
+                                         target_data,
+                                         score_preprocessing,
+                                         tt,
+                                         var_name=None,
+                                         epsilons=None,
+                                         label='orig',)
+        else:
+            baseline = series_prediction(model,
+                                         target_data,
+                                         score_preprocessing,
+                                         tt,
+                                         reverse,
+                                         len(timepoints),
+                                         var_name=None,
+                                         epsilons=None,
+                                         label='orig')
+
+        for var_name in features:
+
+            if not timeseries:
+                # predict for perturbed data
+                perturb = static_prediction(model,
+                                            target_data,
+                                            score_preprocessing,
+                                            tt,
+                                            var_name=var_name,
+                                            epsilons=epsilons,
+                                            label='perturb')
             else:
-                epsilon = epsilon_value
-
-            target_data_pert = target_data.copy()
-
-            target_data_pert.loc[idx, var_name] = epsilon  # z-value (=0 for numerical values)
-
-            probs = predict(model, target_data_pert.loc[idx, :])
-
-            logit = score_preprocessing(probs)
-
-            logit_orig_sliced = logit_data.loc[idx, 'logit_orig']
-            logit_diff = score_comparison(logit_orig_sliced, logit)
-
+                # predict for perturbed data
+                perturb = series_prediction(model,
+                                            target_data,
+                                            score_preprocessing,
+                                            tt,
+                                            reverse,
+                                            len(timepoints),
+                                            var_name=var_name,
+                                            epsilons=epsilons,
+                                            label='perturb')
+            # logits
+            logit_orig = baseline['logit_orig']
+            logit_perturb = perturb['logit_perturb']
+            logit_diff = score_comparison(logit_orig, logit_perturb)
+            # store
+            idx = target_data.index.get_level_values('timepoint') == tt
             prob_deltas_per_cell.loc[idx, var_name] = logit_diff
-
-            prob_deltas_per_cell.loc[idx, 'orig_prob'] = logit_data.loc[idx, 'probs_orig']
-            prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = probs
+            prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = perturb['probs_perturb']
+            prob_deltas_per_cell.loc[idx, 'orig_prob'] = baseline['probs_orig']
 
     return prob_deltas_per_cell.astype(float)
 
@@ -153,14 +293,14 @@ def create_magec_col(model_name, feature):
     return model_name + '_' + feature
 
 
-def case_magecs(model, data, epsilon_value=0, model_name=None):
+def case_magecs(model, data, epsilon_value=0, model_name=None, reverse=True, timeseries=False):
     """
     Compute MAgECs for every 'case' (individual row/member table).
     Use all features in data to compute MAgECs.
     NOTE 1: we prefix MAgECs with model_name.
     NOTE 2: we postfix non-MAgECs, such as 'perturb_<FEAT>_prob' with model_name.
     """
-    magecs = z_perturbation(model, data, epsilon_value=epsilon_value)
+    magecs = z_perturbation(model, data, epsilon_value=epsilon_value, reverse=reverse, timeseries=timeseries)
     features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
@@ -230,14 +370,13 @@ def magec_cols(magec, features):
     return jcols, cols
 
 
-def magec_models(*magecs,
-                 Xdata=None,
-                 Ydata=None,
-                 features=('Age', 'BloodPressure', 'BMI', 'Glucose', 'Insulin',
-                           'SkinThickness', 'DiabetesPedigreeFunction')):
+def magec_models(*magecs, **kwargs):
     """
     Wrapper function for joining MAgECs from different models together and (optionally) w/ tabular data
     """
+    Xdata = kwargs.get('Xdata', None)
+    Ydata = kwargs.get('Ydata', None)
+    features = kwargs.get('features', [])
     assert len(magecs) > 1
     jcols, cols = magec_cols(magecs[0], features)
     magec = magecs[0][cols]
