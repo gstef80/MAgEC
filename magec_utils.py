@@ -8,11 +8,17 @@ import plotly.offline as py
 import plotly.graph_objs as go
 import plotly.tools as tls
 from sklearn.model_selection import cross_val_score
-from sklearn.metrics import confusion_matrix
 from sklearn.metrics import roc_curve, precision_recall_curve, auc
 from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_val_predict
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import confusion_matrix
 from numpy import interp
+
 from collections import OrderedDict
 
 
@@ -924,3 +930,52 @@ def scores_table(model, X, y, subtitle):
     fig = dict(data=[trace], layout=layout)
 
     py.iplot(fig, filename='styled_table')
+
+
+def predict_classes(model, data):
+    """
+    Model output (predicted) classes.
+    """
+    if hasattr(model, 'predict_classes'):
+        return model.predict_classes(data).ravel()
+    else:
+        return model.predict(data).ravel()
+
+
+def evaluate(model, x_test, y_test):
+    # predict probabilities for test set
+    yhat_probs = predict(model, x_test)
+
+    # predict classes for test set
+    yhat_classes = predict_classes(model, x_test)
+
+    # reduce to 1d array
+    if len(yhat_probs[0].shape):
+        yhat_probs = yhat_probs[:, 0]
+        yhat_classes = yhat_classes[:, 0]
+
+    # accuracy: (tp + tn) / (p + n)
+    accuracy = accuracy_score(y_test, yhat_classes)
+    print('Accuracy: %f' % accuracy)
+
+    # precision tp / (tp + fp)
+    precision = precision_score(y_test, yhat_classes)
+    print('Precision: %f' % precision)
+
+    # recall: tp / (tp + fn)
+    recall = recall_score(y_test, yhat_classes)
+    print('Recall: %f' % recall)
+
+    # f1: 2 tp / (2 tp + fp + fn)
+    f1 = f1_score(y_test, yhat_classes)
+    print('F1 score: %f' % f1)
+
+    # ROC AUC
+    auc = roc_auc_score(y_test, yhat_probs)
+    print('ROC AUC: %f' % auc)
+
+    # confusion matrix
+    matrix = confusion_matrix(y_test, yhat_classes)
+    print(matrix)
+
+    return accuracy, precision, recall, f1, auc
