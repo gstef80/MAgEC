@@ -18,6 +18,8 @@ from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
 from numpy import interp
+import rbo
+
 
 from collections import OrderedDict
 
@@ -495,6 +497,57 @@ def print_ranks_stats(ranks, models=('mlp', 'rf', 'lr')):
                 print("**** " + col + " ****")
                 print(ranks[col].value_counts())
                 print("***********")
+
+
+def magec_rbos(ranks, models=('mlp', 'rf', 'lr')):
+    """
+    Given a ranked list of magecs from one or more models compute pairwise RBOs.
+    :param ranks:
+    :param models:
+    :return:
+    """
+
+    cols = [c for c in ranks if '_feat_' in c]
+
+    m_cols = dict()
+    for model in models:
+        t_sorted = sorted([('_'.join(c.split('_')[:-1]),
+                            int(c.split('_')[-1])) for c in cols if c.startswith(model)],
+                          key=lambda x: x[1])
+        m_cols[model] = [t[0] + '_' + str(t[1]) for t in t_sorted]
+
+    out = list()
+
+    combos = [(m1, m2) for i, m1 in enumerate(models) for j, m2 in enumerate(models) if i > j]
+
+    for (_, row) in ranks.iterrows():
+
+        case = row.case
+        timepoint = row.timepoint
+
+        m_ranked = dict()
+        for m, cols in m_cols.items():
+            feats = list()
+            for col in cols:
+                feat = row[col]
+                if feat != 'not_found':
+                    feats.append(feat)
+            m_ranked[m] = feats
+
+        combo_sim = list()
+        for c in combos:
+            l1 = m_ranked[c[0]]
+            l2 = m_ranked[c[1]]
+            sim = rbo.RankingSimilarity(l1, l2).rbo()
+            combo_sim.append(sim)
+
+        case_out = [case, timepoint] + [feats for _, feats in m_ranked.items()] + combo_sim
+        case_cols = ['case', 'timepoint'] + [m + '_ranked' for m, _ in m_ranked.items()] + [c[0] + '_' + c[1] for c in
+                                                                                            combos]
+
+        out.append(pd.Series(case_out, index=case_cols))
+
+    return pd.DataFrame.from_records(out)
 
 
 def magec_consensus(magec_ranks,
