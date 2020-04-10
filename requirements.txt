@@ -14,7 +14,6 @@ certifi==2019.11.28
 cffi==1.13.2
 cfgv==2.0.1
 chardet==3.0.4
-conda==4.8.0
 conda-package-handling==1.6.0
 confuse==1.0.0
 cov-core==1.15.0
