@@ -168,7 +168,6 @@ tornado==6.0.3
 tqdm==4.42.0
 traitlets==4.3.3
 typed-ast==1.4.1
-typing==3.7.4.1
 tzlocal==2.0.0
 urllib3==1.24.3
 virtualenv==16.7.9
