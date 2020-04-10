@@ -1096,36 +1096,37 @@ def red_cell(table, r, c):
     return
 
 
-def case_stats(joined, case, models=('lr', 'rf', 'mlp'), consensus=None):
-    data = joined.iloc[case]
+def case_stats(joined, case, timepoint=None, models=('lr', 'rf', 'mlp')):
+    if timepoint is None:
+        data = joined.loc[joined.case == case]
+    else:
+        data = joined.loc[(joined.case == case) & (joined.timepoint == timepoint)]
 
-    if models is None:
-        models = consensus.iloc[case].models
-
-    tmp = [col for col in data.index.values if col.startswith('perturb_') and col[-len(models[0]):] == models[0]]
-    feats = [col.split('perturb_')[1].split('_')[0] for col in tmp]
+    tmp = [col for col in data.columns if col.startswith('perturb_') and col[-len(models[0]):] == models[0]]
+    feats = [col.split('perturb_')[1].split('_prob_')[0] for col in tmp]
     out = list()
     for feat in feats:
         for model in models:
-            l = [case]
+            l = [case, timepoint]
             magec = model + '_' + feat
-            magec = data[magec]
+            magec = data[magec].values[0]
             perturb = 'perturb_' + feat + '_prob_' + model
-            perturb = data[perturb]
+            perturb = data[perturb].values[0]
             orig = 'orig_prob_' + model
-            orig = data[orig]
+            orig = data[orig].values[0]
             l.append(model)
             l.append(feat)
             l.append(magec)
             l.append(orig)
             l.append(perturb)
             l.append(100 * (orig - perturb) / orig)
-            out.append(pd.Series(l, index=['case', 'model', 'feature', 'magec', 'risk', 'risk_new', 'risk_prc_reduct']))
+            out.append(pd.Series(l, index=['case', 'timepoint', 'model', 'feature',
+                                           'magec', 'risk', 'risk_new', 'risk_prc_reduct']))
     return pd.DataFrame.from_records(out)
 
 
-def panel_plot(train_cols, features, stsc, joined, consensus, case, models=('lr', 'rf', 'mlp')):
-    case_df = case_stats(joined, case, models=models, consensus=consensus)
+def panel_plot(train_cols, features, stsc, joined, case, timepoint=None, models=('lr', 'rf', 'mlp')):
+    case_df = case_stats(joined, case, timepoint, models=models)
 
     fig = plt.figure(figsize=(14, 10))
     grid = plt.GridSpec(3, 5, wspace=0.2, hspace=0.1)

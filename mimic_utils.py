@@ -37,11 +37,14 @@ def get_mimic_data():
     dbname = 'mimic'
     schema_name = 'mimiciii'
     engine = create_engine("postgresql+psycopg2://{}:{}@/{}".format(sqluser, sqluser, dbname))
-    conn = engine.connect()
-    conn.execute('SET search_path to ' + schema_name)
-    df = pd.read_sql("SELECT * FROM mimic_users_study;", conn)
-    conn.close()
-    df = df.sort_values(['subject_id', 'timepoint'], ascending=(1, 0))
+    try:
+        conn = engine.connect()
+        conn.execute('SET search_path to ' + schema_name)
+        df = pd.read_sql("SELECT * FROM mimic_users_study;", conn)
+        conn.close()
+        df = df.sort_values(['subject_id', 'timepoint'], ascending=(1, 0))
+    except Exception as e:
+        raise e
     return df
 
 
