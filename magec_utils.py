@@ -1261,15 +1261,12 @@ def panel_plot(train_cols, features, stsc, joined, consensus, case, models=('lr'
     celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', joined.iloc[case].Outcome]]
 
     collabel1 = ["Model", "Predicted Risk"]
-    celldata1 = [['LR', round(joined.iloc[case].orig_prob_lr, 3)],
-                 ['RF', round(joined.iloc[case].orig_prob_rf, 3)],
-                 ['MLP', round(joined.iloc[case].orig_prob_mlp, 3)],
-                 ['ENSEMBLE', round(joined.iloc[case].orig_prob_en, 3)]]
+
+    celldata1 = [[model.upper(), round(joined.iloc[case]['orig_prob_'+model], 3)] for model in models]
 
     collabel2 = ["Model"] + ["MAgEC " + feat for feat in features]
-    celldata2 = [['LR'] + [round(joined.iloc[case]['lr_' + feat], 3) for feat in features],
-                 ['RF'] + [round(joined.iloc[case]['rf_' + feat], 3) for feat in features],
-                 ['MLP'] + [round(joined.iloc[case]['mlp_' + feat], 3) for feat in features]]
+    celldata2 = [[model.upper()] + [round(joined.iloc[case][model+'_'+feat], 3)
+                                    for feat in features] for model in models]
 
     # collabel3 = ["Selected Feature", "Estimate Risk Reduction", "Model Consensus", "Average RBO"]
     # celldata3 = [[consensus.iloc[case].winner,
