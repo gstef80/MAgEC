@@ -18,17 +18,7 @@ from sklearn.metrics import recall_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import VotingClassifier
 from numpy import interp
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import Dropout
-from keras.wrappers.scikit_learn import KerasClassifier
 import rbo
 from collections import OrderedDict
 
@@ -1096,11 +1086,7 @@ def red_cell(table, r, c):
     return
 
 
-def case_stats(joined, case, timepoint=None, models=('lr', 'rf', 'mlp')):
-    if timepoint is None:
-        data = joined.loc[joined.case == case]
-    else:
-        data = joined.loc[(joined.case == case) & (joined.timepoint == timepoint)]
+def case_stats(data, case, timepoint=None, models=('lr', 'rf', 'mlp')):
 
     tmp = [col for col in data.columns if col.startswith('perturb_') and col[-len(models[0]):] == models[0]]
     feats = [col.split('perturb_')[1].split('_prob_')[0] for col in tmp]
@@ -1125,8 +1111,23 @@ def case_stats(joined, case, timepoint=None, models=('lr', 'rf', 'mlp')):
     return pd.DataFrame.from_records(out)
 
 
-def panel_plot(train_cols, features, stsc, joined, case, timepoint=None, models=('lr', 'rf', 'mlp')):
-    case_df = case_stats(joined, case, timepoint, models=models)
+def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
+               models=('lr', 'rf', 'mlp'), label='Outcome', limit=None, rotate=None):
+
+    if timepoint is None:
+        data = joined.loc[joined.case == case]
+    else:
+        data = joined.loc[(joined.case == case) & (joined.timepoint == timepoint)]
+
+    case_df = case_stats(data, case, timepoint, models=models)
+
+    if limit is not None:
+        topK = case_df.groupby('feature')['risk_new'].mean().sort_values()[:limit].index.values
+        case_df = case_df[np.isin(case_df['feature'], topK)]
+        train_cols_idx = [train_cols.to_list().index(x) for x in topK]
+        features = topK
+    else:
+        train_cols_idx = [i for i in range(len(train_cols))]
 
     fig = plt.figure(figsize=(14, 10))
     grid = plt.GridSpec(3, 5, wspace=0.2, hspace=0.1)
@@ -1137,33 +1138,29 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None, models=
     bar_fig = fig.add_subplot(grid[:2, 2:])
 
     base = case_df.groupby('feature')['risk'].mean()
-    ymax = max(np.max(base.values), np.max(case_df.groupby('feature')['risk_new'].max()))
+
     bar_fig = sns.barplot(x="feature", y="risk_new", data=case_df, ci=None, ax=bar_fig)
     bar_fig.plot(np.linspace(bar_fig.get_xlim()[0], bar_fig.get_xlim()[1], 10),
                  np.mean(base.values) * np.ones(10), '--')
     bar_fig.legend(['current risk', 'estimated risk'], loc='upper right')
     bar_fig.set_ylabel('estimated risk')
-    bar_fig.set_ylim([0, min(round(1.2*ymax, 1), 1)])
+    bar_fig.set_ylim([0, min(round(1.2*bar_fig.get_ylim()[1], 1), 1)])
+    if rotate is not None:
+        bar_fig.set_xticklabels(bar_fig.get_xticklabels(), rotation=rotate)
 
     collabel0 = ["Case", str(case)]
 
     cell_feat = [feat for feat in train_cols]
-    cell_vals = [round(val, 3) for val in stsc.inverse_transform(joined.iloc[case][train_cols])]
-    celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', joined.iloc[case].Outcome]]
+    cell_vals = [round(val, 3) for val in stsc.inverse_transform(data[train_cols])[0][train_cols_idx]]
+    celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', data[label].values[0]]]
 
     collabel1 = ["Model", "Predicted Risk"]
 
-    celldata1 = [[model.upper(), round(joined.iloc[case]['orig_prob_'+model], 3)] for model in models]
+    celldata1 = [[model.upper(), round(data['orig_prob_'+model].values[0], 3)] for model in models]
 
     collabel2 = ["Model"] + ["MAgEC " + feat for feat in features]
-    celldata2 = [[model.upper()] + [round(joined.iloc[case][model+'_'+feat], 3)
+    celldata2 = [[model.upper()] + [round(data[model+'_'+feat].values[0], 3)
                                     for feat in features] for model in models]
-
-    # collabel3 = ["Selected Feature", "Estimate Risk Reduction", "Model Consensus", "Average RBO"]
-    # celldata3 = [[consensus.iloc[case].winner,
-    #               str(round(consensus.iloc[case].avg_percent_all, 2)) + '%',
-    #               consensus.iloc[case].models,
-    #               round(rbos.iloc[case][['mlp_lr', 'rf_lr', 'rf_mlp']].mean(), 2)]]
 
     main_fig.axis('tight')
     main_fig.axis('off')
@@ -1171,7 +1168,6 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None, models=
     ml_fig.axis('off')
     mg_fig.axis('tight')
     mg_fig.axis('off')
-    #bar_fig.axis('tight')
 
     table0 = main_fig.table(cellText=celldata0, colLabels=collabel0, loc='center', cellLoc='center')
     table1 = ml_fig.table(cellText=celldata1, colLabels=collabel1, loc='center', cellLoc='center')
