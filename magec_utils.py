@@ -91,7 +91,7 @@ def pima_data():
     y_train_p.set_index(['case', 'timepoint'], inplace=True)
     y_train_p = y_train_p.sort_index(axis=1)
 
-    return pima, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
+    return pima, x_train, x_validation_p, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
 
 
 def pima_models(x_train_p, y_train_p):
