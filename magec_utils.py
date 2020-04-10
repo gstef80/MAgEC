@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.font_manager import FontProperties
 import seaborn as sns
 import plotly.offline as py
 import plotly.graph_objs as go
@@ -17,11 +18,118 @@ from sklearn.metrics import recall_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import VotingClassifier
 from numpy import interp
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import Dropout
+from keras.wrappers.scikit_learn import KerasClassifier
 import rbo
 
 
 from collections import OrderedDict
+
+
+def pima_data():
+    """
+    Load PIMA data, impute, scale and train/valid split
+    :return:
+    """
+
+    def impute(df):
+        out = df.copy()
+        cols = list(set(df.columns) - {'Outcome', 'Pregnancies'})
+        out[cols] = out[cols].replace(0, np.NaN)
+        out[cols] = out[cols].fillna(out[cols].mean())
+        return out
+
+    pima = pd.read_csv('diabetes.csv')
+    seed = 7
+    np.random.seed(seed)
+    x = pima.iloc[:, 0:8]
+    Y = pima.iloc[:, 8]
+
+    x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=0.2, random_state=seed)
+
+    x_train = impute(x_train)
+    x_validation = impute(x_validation)
+
+    stsc = StandardScaler()
+    xst_train = stsc.fit_transform(x_train)
+    xst_train = pd.DataFrame(xst_train, index=x_train.index, columns=x_train.columns)
+    xst_validation = stsc.transform(x_validation)
+    xst_validation = pd.DataFrame(xst_validation, index=x_validation.index, columns=x_validation.columns)
+
+    # Format
+    x_validation_p = xst_validation.copy()
+    x_validation_p['timepoint'] = 0
+    x_validation_p['case'] = np.arange(len(x_validation_p))
+    x_validation_p.set_index(['case', 'timepoint'], inplace=True)
+    x_validation_p = x_validation_p.sort_index(axis=1)
+
+    y_validation_p = pd.DataFrame(Y_validation.copy())
+    y_validation_p['timepoint'] = 0
+    y_validation_p['case'] = np.arange(len(x_validation_p))
+    y_validation_p.set_index(['case', 'timepoint'], inplace=True)
+    y_validation_p = y_validation_p.sort_index(axis=1)
+
+    # Format
+    x_train_p = xst_train.copy()
+    x_train_p['timepoint'] = 0
+    x_train_p['case'] = np.arange(len(x_train_p))
+    x_train_p.set_index(['case', 'timepoint'], inplace=True)
+    x_train_p = x_train_p.sort_index(axis=1)
+
+    y_train_p = pd.DataFrame(Y_train.copy())
+    y_train_p['timepoint'] = 0
+    y_train_p['case'] = np.arange(len(y_train_p))
+    y_train_p.set_index(['case', 'timepoint'], inplace=True)
+    y_train_p = y_train_p.sort_index(axis=1)
+
+    return pima, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
+
+
+def pima_models(x_train_p, y_train_p):
+    """
+    3 ML models for PIMA (scaled) data
+    :param x_train_p:
+    :param Y_train:
+    :return:
+    """
+
+    def create_mlp():
+        mlp = Sequential()
+        mlp.add(Dense(60, input_dim=len(x_train_p.columns), activation='relu'))
+        mlp.add(Dropout(0.2))
+        mlp.add(Dense(30, input_dim=60, activation='relu'))
+        mlp.add(Dropout(0.2))
+        mlp.add(Dense(1, activation='sigmoid'))
+        mlp.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+        return mlp
+
+    mlp = KerasClassifier(build_fn=create_mlp, epochs=100, batch_size=64, verbose=0)
+    mlp.fit(x_train_p, y_train_p)
+
+    rf = RandomForestClassifier(n_estimators=1000)
+    rf.fit(x_train_p, y_train_p)
+    sigmoidRF = CalibratedClassifierCV(RandomForestClassifier(n_estimators=1000), cv=5, method='sigmoid')
+    sigmoidRF.fit(x_train_p, y_train_p)
+
+    lr = LogisticRegression(C=1.)
+    lr.fit(x_train_p, y_train_p)
+
+    # create a dictionary of our models
+    estimators = [('lr', lr), ('rf', sigmoidRF), ('mlp', mlp)]
+    # create our voting classifier, inputting our models
+    ensemble = VotingClassifier(estimators, voting='soft')
+    ensemble.fit(x_train_p, y_train_p)
+
+    return {'mlp': mlp, 'rf': sigmoidRF, 'lr': lr, 'ensemble': ensemble}
 
 
 def get_logit(prob, eps=1e-16):
@@ -119,13 +227,18 @@ def slice_series(target_data, tt, reverse=True):
 
 
 def static_prediction(model, target_data, score_preprocessing,
-                      timepoint, var_name, epsilons, label='orig'):
+                      timepoint, var_name, epsilons, label='orig', baseline=None):
     idx = target_data.index.get_level_values('timepoint') == timepoint
     if label == 'orig':
         df = target_data.loc[idx].copy()
     elif label == 'perturb':
         df = target_data.loc[idx].copy()
-        df.loc[:, var_name] = epsilons[var_name]  # perturb to new value
+        if baseline is None:
+            df.loc[:, var_name] = epsilons[var_name]  # perturb to new value
+        else:
+            z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
+            tmp = df.loc[:, var_name]
+            df.loc[:, var_name] = tmp - z_sign * baseline * tmp
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
     probs = predict(model, df)
@@ -138,13 +251,19 @@ def static_prediction(model, target_data, score_preprocessing,
 
 
 def series_prediction(model, target_data, score_preprocessing,
-                      timepoint, reverse, pad, var_name, epsilons, label='orig'):
+                      timepoint, reverse, pad, var_name, epsilons,
+                      label='orig', baseline=None):
     if label == 'orig':
         df = target_data.copy()
     elif label == 'perturb':
         df = target_data.copy()
         idx = df.index.get_level_values('timepoint') == timepoint
-        df.loc[idx, var_name] = epsilons[var_name]  # perturb to new value
+        if baseline is None:
+            df.loc[idx, var_name] = epsilons[var_name]  # perturb to new value
+        else:
+            z_sign = (df.loc[idx, var_name] >= 0) * 2 - 1
+            tmp = df.loc[idx, var_name]
+            df.loc[idx, var_name] = tmp - z_sign * baseline * tmp
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
     df = slice_series(df, timepoint, reverse=reverse)
@@ -170,7 +289,8 @@ def z_perturbation(model, target_data,
                    timepoint_level='timepoint',
                    epsilon_value=0,
                    reverse=True,
-                   timeseries=False):
+                   timeseries=False,
+                   baseline=None):
     '''
     Main method for computing a MAgEC. Assumes 'scaled/normalized' features in target data.
         Supporting 2 types of variables:
@@ -191,6 +311,7 @@ def z_perturbation(model, target_data,
     :param epsilon_value:
     :param reverse:
     :param timeseries:
+    :param baseline: whether to compute baseline MAgECS, None as default, 0.01 for 1% perturbation
     :return:
     '''
     # assert 'timepoint' and 'case' exist in either index or columns
@@ -229,23 +350,23 @@ def z_perturbation(model, target_data,
         # print("Timepoint {}".format(tt))
 
         if not timeseries:
-            baseline = static_prediction(model,
-                                         target_data,
-                                         score_preprocessing,
-                                         tt,
-                                         var_name=None,
-                                         epsilons=None,
-                                         label='orig',)
+            base = static_prediction(model,
+                                     target_data,
+                                     score_preprocessing,
+                                     tt,
+                                     var_name=None,
+                                     epsilons=None,
+                                     label='orig')
         else:
-            baseline = series_prediction(model,
-                                         target_data,
-                                         score_preprocessing,
-                                         tt,
-                                         reverse,
-                                         len(timepoints),
-                                         var_name=None,
-                                         epsilons=None,
-                                         label='orig')
+            base = series_prediction(model,
+                                     target_data,
+                                     score_preprocessing,
+                                     tt,
+                                     reverse,
+                                     len(timepoints),
+                                     var_name=None,
+                                     epsilons=None,
+                                     label='orig')
 
         for var_name in features:
 
@@ -257,7 +378,8 @@ def z_perturbation(model, target_data,
                                             tt,
                                             var_name=var_name,
                                             epsilons=epsilons,
-                                            label='perturb')
+                                            label='perturb',
+                                            baseline=baseline)
             else:
                 # predict for perturbed data
                 perturb = series_prediction(model,
@@ -268,16 +390,17 @@ def z_perturbation(model, target_data,
                                             len(timepoints),
                                             var_name=var_name,
                                             epsilons=epsilons,
-                                            label='perturb')
+                                            label='perturb',
+                                            baseline=baseline)
             # logits
-            logit_orig = baseline['logit_orig']
+            logit_orig = base['logit_orig']
             logit_perturb = perturb['logit_perturb']
             logit_diff = score_comparison(logit_orig, logit_perturb)
             # store
             idx = target_data.index.get_level_values('timepoint') == tt
             prob_deltas_per_cell.loc[idx, var_name] = logit_diff
             prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = perturb['probs_perturb']
-            prob_deltas_per_cell.loc[idx, 'orig_prob'] = baseline['probs_orig']
+            prob_deltas_per_cell.loc[idx, 'orig_prob'] = base['probs_orig']
 
     return prob_deltas_per_cell.astype(float)
 
@@ -301,14 +424,19 @@ def create_magec_col(model_name, feature):
     return model_name + '_' + feature
 
 
-def case_magecs(model, data, epsilon_value=0, model_name=None, reverse=True, timeseries=False):
+def case_magecs(model, data, epsilon_value=0, model_name=None,
+                reverse=True, timeseries=False, baseline=None):
     """
     Compute MAgECs for every 'case' (individual row/member table).
     Use all features in data to compute MAgECs.
     NOTE 1: we prefix MAgECs with model_name.
     NOTE 2: we postfix non-MAgECs, such as 'perturb_<FEAT>_prob' with model_name.
     """
-    magecs = z_perturbation(model, data, epsilon_value=epsilon_value, reverse=reverse, timeseries=timeseries)
+    magecs = z_perturbation(model, data,
+                            epsilon_value=epsilon_value,
+                            reverse=reverse,
+                            timeseries=timeseries,
+                            baseline=baseline)
     features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
@@ -499,13 +627,16 @@ def print_ranks_stats(ranks, models=('mlp', 'rf', 'lr')):
                 print("***********")
 
 
-def magec_rbos(ranks, models=('mlp', 'rf', 'lr')):
+def magec_rbos(ranks, models=('mlp', 'rf', 'lr'), p=0.9):
     """
     Given a ranked list of magecs from one or more models compute pairwise RBOs.
     :param ranks:
     :param models:
+    :param p: RBO's p'value
     :return:
     """
+
+    models = sorted(models)
 
     cols = [c for c in ranks if '_feat_' in c]
 
@@ -538,7 +669,7 @@ def magec_rbos(ranks, models=('mlp', 'rf', 'lr')):
         for c in combos:
             l1 = m_ranked[c[0]]
             l2 = m_ranked[c[1]]
-            sim = rbo.RankingSimilarity(l1, l2).rbo()
+            sim = rbo.RankingSimilarity(l1, l2).rbo(p=p)
             combo_sim.append(sim)
 
         case_out = [case, timepoint] + [feats for _, feats in m_ranked.items()] + combo_sim
@@ -748,18 +879,18 @@ def magec_winner(magecs_feats,
     for model, feat_dict in magecs_feats.items():
         for feat_col, score_col in feat_dict.items():
             feat = row[feat_col]
-            score = row[score_col]
-            if not np.isnan(score):
-                score = scoring(score)
-                if use_weights:
-                    if weights[model] is not None:
-                        score *= weights[model]
-                if feat in scores:
-                    scores[feat] += score
-                    consensus[feat].add(model)
-                else:
-                    scores[feat] = score
-                    consensus[feat] = {model}
+            if feat == 'not_found':
+                continue
+            score = scoring(row[score_col])
+            if use_weights:
+                if weights[model] is not None:
+                    score *= weights[model]
+            if feat in scores:
+                scores[feat] += score
+                consensus[feat].add(model)
+            else:
+                scores[feat] = score
+                consensus[feat] = {model}
     # get consensus
     for feat, score in scores.items():
         if policy == 'mean':
@@ -768,6 +899,32 @@ def magec_winner(magecs_feats,
             winner = (feat, score, len(consensus[feat]), sorted(list(consensus[feat])))
 
     return winner
+
+
+def enhance_consensus(consensus, rbos, models=('mlp', 'rf', 'lr')):
+    m = sorted(models)
+    combos = [m1+'_'+m2 for i, m1 in enumerate(m) for j, m2 in enumerate(m) if i > j]
+    jcols = ['case', 'timepoint']
+    consensus = consensus.merge(rbos[jcols+combos], left_on=jcols, right_on=jcols)
+    data = list()
+    for (_, row) in consensus.iterrows():
+        case = row.case
+        timepoint = row.timepoint
+        winner = row.winner
+        score = row.score
+        consensus = row.consensus
+        avg_percent_consensus = row.avg_percent_consensus
+        avg_percent_all = row.avg_percent_all
+        mdls = sorted(row.models)
+        rbos = [m1+'_'+m2 for i, m1 in enumerate(mdls) for j, m2 in enumerate(mdls) if i > j]
+        rbo_min = np.min(row[rbos])
+        rbo_max = np.max(row[rbos])
+        tmp = pd.Series((case, timepoint, winner, score, consensus,
+                         avg_percent_consensus, avg_percent_all, rbo_min, rbo_max),
+                        index=['case', 'timepoint', 'winner', 'score', 'consensus',
+                               'avg_percent_consensus', 'avg_percent_all', 'rbo_min', 'rbo_max'])
+        data.append(tmp)
+    return pd.DataFrame.from_records(data)
 
 
 def magec_similarity(case_magecs,
@@ -1032,3 +1189,230 @@ def evaluate(model, x_test, y_test):
     print(matrix)
 
     return accuracy, precision, recall, f1, auc
+
+
+def bold_column(table):
+    for (row, col), cell in table.get_celld().items():
+        if (row == 0) or (col == -1):
+            cell.set_text_props(fontproperties=FontProperties(weight='bold'))
+    return
+
+
+def red_cell(table, r, c):
+    for (row, col), cell in table.get_celld().items():
+        if (row == r) and (col == c):
+            cell.set_text_props(fontproperties=FontProperties(color='red'))
+
+    return
+
+
+def case_stats(joined, case, models=('lr', 'rf', 'mlp'), consensus=None):
+    data = joined.iloc[case]
+
+    if models is None:
+        models = consensus.iloc[case].models
+
+    tmp = [col for col in data.index.values if col.startswith('perturb_') and col[-len(models[0]):] == models[0]]
+    feats = [col.split('perturb_')[1].split('_')[0] for col in tmp]
+    out = list()
+    for feat in feats:
+        for model in models:
+            l = [case]
+            magec = model + '_' + feat
+            magec = data[magec]
+            perturb = 'perturb_' + feat + '_prob_' + model
+            perturb = data[perturb]
+            orig = 'orig_prob_' + model
+            orig = data[orig]
+            l.append(model)
+            l.append(feat)
+            l.append(magec)
+            l.append(orig)
+            l.append(perturb)
+            l.append(100 * (orig - perturb) / orig)
+            out.append(pd.Series(l, index=['case', 'model', 'feature', 'magec', 'risk', 'risk_new', 'risk_prc_reduct']))
+    return pd.DataFrame.from_records(out)
+
+
+def panel_plot(train_cols, features, stsc, joined, consensus, case, models=('lr', 'rf', 'mlp')):
+    case_df = case_stats(joined, case, models=models, consensus=consensus)
+
+    fig = plt.figure(figsize=(14, 10))
+    grid = plt.GridSpec(3, 5, wspace=0.2, hspace=0.1)
+
+    main_fig = fig.add_subplot(grid[0, 0:2])
+    ml_fig = fig.add_subplot(grid[1, 0:2])
+    mg_fig = fig.add_subplot(grid[2, :])
+    bar_fig = fig.add_subplot(grid[:2, 2:])
+
+    base = case_df.groupby('feature')['risk'].mean()
+    ymax = max(np.max(base.values), np.max(case_df.groupby('feature')['risk_new'].max()))
+    bar_fig = sns.barplot(x="feature", y="risk_new", data=case_df, ci=None, ax=bar_fig)
+    bar_fig.plot(np.linspace(bar_fig.get_xlim()[0], bar_fig.get_xlim()[1], 10),
+                 np.mean(base.values) * np.ones(10), '--')
+    bar_fig.legend(['current risk', 'estimated risk'], loc='upper right')
+    bar_fig.set_ylabel('estimated risk')
+    bar_fig.set_ylim([0, min(round(1.2*ymax, 1), 1)])
+
+    collabel0 = ["Case", str(case)]
+
+    cell_feat = [feat for feat in train_cols]
+    cell_vals = [round(val, 3) for val in stsc.inverse_transform(joined.iloc[case][train_cols])]
+    celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', joined.iloc[case].Outcome]]
+
+    collabel1 = ["Model", "Predicted Risk"]
+    celldata1 = [['LR', round(joined.iloc[case].orig_prob_lr, 3)],
+                 ['RF', round(joined.iloc[case].orig_prob_rf, 3)],
+                 ['MLP', round(joined.iloc[case].orig_prob_mlp, 3)],
+                 ['ENSEMBLE', round(joined.iloc[case].orig_prob_en, 3)]]
+
+    collabel2 = ["Model"] + ["MAgEC " + feat for feat in features]
+    celldata2 = [['LR'] + [round(joined.iloc[case]['lr_' + feat], 3) for feat in features],
+                 ['RF'] + [round(joined.iloc[case]['rf_' + feat], 3) for feat in features],
+                 ['MLP'] + [round(joined.iloc[case]['mlp_' + feat], 3) for feat in features]]
+
+    # collabel3 = ["Selected Feature", "Estimate Risk Reduction", "Model Consensus", "Average RBO"]
+    # celldata3 = [[consensus.iloc[case].winner,
+    #               str(round(consensus.iloc[case].avg_percent_all, 2)) + '%',
+    #               consensus.iloc[case].models,
+    #               round(rbos.iloc[case][['mlp_lr', 'rf_lr', 'rf_mlp']].mean(), 2)]]
+
+    main_fig.axis('tight')
+    main_fig.axis('off')
+    ml_fig.axis('tight')
+    ml_fig.axis('off')
+    mg_fig.axis('tight')
+    mg_fig.axis('off')
+    #bar_fig.axis('tight')
+
+    table0 = main_fig.table(cellText=celldata0, colLabels=collabel0, loc='center', cellLoc='center')
+    table1 = ml_fig.table(cellText=celldata1, colLabels=collabel1, loc='center', cellLoc='center')
+    table2 = mg_fig.table(cellText=celldata2, colLabels=collabel2, loc='center', cellLoc='center')
+
+    table0.set_fontsize(12)
+    table0.scale(1.5, 1.5)
+
+    table1.set_fontsize(12)
+    table1.scale(1.5, 1.5)
+
+    table2.set_fontsize(12)
+    table2.scale(1.5, 1.5)
+
+    table0.auto_set_column_width(col=list(range(len(collabel0))))
+    table1.auto_set_column_width(col=list(range(len(collabel1))))
+    table2.auto_set_column_width(col=list(range(len(collabel2))))
+
+    bold_column(table0)
+    bold_column(table1)
+    bold_column(table2)
+    return
+
+
+def build_base_rbos(mlp, sigmoidRF, lr, x_validation_p, y_validation_p, features, weights, baseline=0.01):
+    models=('lr', 'rf', 'mlp')
+    # MLP
+    base_case_mlp = case_magecs(mlp, x_validation_p, model_name='mlp', baseline=baseline)
+    base_magecs_mlp = normalize_magecs(base_case_mlp, features=None, model_name='mlp')
+    # RF
+    base_case_rf = case_magecs(sigmoidRF, x_validation_p, model_name='rf', baseline=baseline)
+    base_magecs_rf = normalize_magecs(base_case_rf, features=None, model_name='rf')
+    # LR
+    base_case_lr = case_magecs(lr, x_validation_p, model_name='lr', baseline=baseline)
+    base_magecs_lr = normalize_magecs(base_case_lr, features=None, model_name='lr')
+
+    base_joined = magec_models(base_magecs_mlp,
+                               base_magecs_rf,
+                               base_magecs_lr,
+                               Xdata=x_validation_p,
+                               Ydata=y_validation_p,
+                               features=features)
+
+    base_ranks = magec_rank(base_joined, rank=len(features), features=features)
+
+    base_consensus = magec_consensus(base_ranks, use_weights=True, weights=weights, models=models)
+    base_rbos = magec_rbos(base_ranks, models=models)
+
+    return base_rbos, base_consensus, base_ranks
+
+
+def ranked_stats(ranks):
+    columns = ranks.columns
+    stats = {}
+    for model in ['lr', 'rf', 'mlp']:
+        cols = [col for col in columns if col.startswith(model + '_' + 'feat')]
+        if len(cols):
+            for col in cols:
+                tmp = ranks[col].value_counts()
+                for z in zip(tmp.index.values.tolist(), tmp.values.tolist()):
+                    if z[0] in stats:
+                        stats[z[0]].append((z[1], model))
+                    else:
+                        stats[z[0]] = [(z[1], model)]
+    return stats
+
+
+def con_stats(consensus, label='CON@1'):
+    conf = consensus.winner.value_counts().index.values.tolist()
+    conv = consensus.winner.value_counts().values.tolist()
+    con = {z[0]: (z[1], label) for z in zip(conf, conv)}
+    return con
+
+
+def df_stats(stats, con1, con3):
+
+    def feat_num(feat, stats, model):
+        if feat in stats and np.any([model in x[1] for x in stats[feat]]):
+            return [x[0] for x in stats[feat] if x[1] == model][0]
+        else:
+            return 0
+
+    dfplot = pd.DataFrame(columns=['Feature', 'LR', 'RF', 'MLP', 'CON@1', 'CON@3'],
+                          data=[['Glucose',
+                                 feat_num('Glucose', stats, 'lr'),
+                                 feat_num('Glucose', stats, 'rf'),
+                                 feat_num('Glucose', stats, 'mlp'),
+                                 con1['Glucose'][0] if 'Glucose' in con1 else 0,
+                                 con3['Glucose'][0] if 'Glucose' in con3 else 0],
+                                ['Insulin',
+                                 feat_num('Insulin', stats, 'lr'),
+                                 feat_num('Insulin', stats, 'rf'),
+                                 feat_num('Insulin', stats, 'mlp'),
+                                 con1['Insulin'][0] if 'Insulin' in con1 else 0,
+                                 con3['Insulin'][0] if 'Insulin' in con3 else 0],
+                                ['BMI',
+                                 feat_num('BMI', stats, 'lr'),
+                                 feat_num('BMI', stats, 'rf'),
+                                 feat_num('BMI', stats, 'mlp'),
+                                 con1['BMI'][0] if 'BMI' in con1 else 0,
+                                 con3['BMI'][0] if 'BMI' in con3 else 0],
+                                ['BloodPressure',
+                                 feat_num('BloodPressure', stats, 'lr'),
+                                 feat_num('BloodPressure', stats, 'rf'),
+                                 feat_num('BloodPressure', stats, 'mlp'),
+                                 con1['BloodPressure'][0] if 'BloodPressure' in con1 else 0,
+                                 con3['BloodPressure'][0] if 'BloodPressure' in con3 else 0],
+                                ['SkinThickness',
+                                 feat_num('SkinThickness', stats, 'lr'),
+                                 feat_num('SkinThickness', stats, 'rf'),
+                                 feat_num('SkinThickness', stats, 'mlp'),
+                                 con1['SkinThickness'][0] if 'SkinThickness' in con1 else 0,
+                                 con3['SkinThickness'][0] if 'SkinThickness' in con3 else 0],
+                                ['not_found',
+                                 feat_num('not_found', stats, 'lr'),
+                                 feat_num('not_found', stats, 'rf'),
+                                 feat_num('not_found', stats, 'mlp'),
+                                 con1['not_found'][0] if 'not_found' in con1 else 0,
+                                 con3['not_found'][0] if 'not_found' in con3 else 0]])
+    return dfplot
+
+
+def plot_stats(dfplot, save=False):
+    dfplot = dfplot.set_index('Feature')
+    dfplot.plot(kind='bar',
+                stacked=True,
+                figsize=(10, 6),
+                title='MAgEC (best) features by model and policy',
+                rot=45)
+    if save:
+        plt.savefig('pima_magec_stats.png', bbox_inches='tight')
+    return
