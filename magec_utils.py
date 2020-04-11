@@ -1150,7 +1150,7 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
 
     collabel0 = ["Case", str(case)]
 
-    cell_feat = [feat for feat in train_cols]
+    cell_feat = [feat for feat in train_cols[train_cols_idx]]
     cell_vals = [round(val, 3) for val in stsc.inverse_transform(data[train_cols])[0][train_cols_idx]]
     celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', data[label].values[0]]]
 
@@ -1193,7 +1193,7 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
 
 
 def build_base_rbos(mlp, sigmoidRF, lr, x_validation_p, y_validation_p, features, weights, baseline=0.01):
-    models=('lr', 'rf', 'mlp')
+    models = ('lr', 'rf', 'mlp')
     # MLP
     base_case_mlp = case_magecs(mlp, x_validation_p, model_name='mlp', baseline=baseline)
     base_magecs_mlp = normalize_magecs(base_case_mlp, features=None, model_name='mlp')
