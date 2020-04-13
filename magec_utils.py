@@ -1111,6 +1111,34 @@ def case_stats(data, case, timepoint=None, models=('lr', 'rf', 'mlp')):
     return pd.DataFrame.from_records(out)
 
 
+def magec_threshold(data, features, threshold=0.5, ensemble='ensemble', models=('lr', 'rf', 'mlp')):
+    """
+    A case for which the ensemble prediction is above a threshold (0.5),
+    but the model predictions for perturbed features are below the threshold.
+    The 'magec_postive' number denotes the number of models with at least one such feature.
+    :param data:
+    :param features:
+    :param threshold:
+    :param ensemble:
+    :param models: 
+    :return:
+    """
+    col = 'orig_prob_' + ensemble
+    assert col in data, "{} not in dataframe".format(col)
+    out = 0
+    if data[col] <= threshold:
+        return out
+    else:
+        for model in models:
+            for feat in features:
+                fcol = 'perturb_' + feat + '_prob_' + model
+                assert fcol in data, "{} not in dataframe".format(fcol)
+                if data[fcol] > threshold:
+                    out += 1
+                    break
+    return out
+
+
 def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
                models=('lr', 'rf', 'mlp'), label='Outcome', limit=None, rotate=None):
 
