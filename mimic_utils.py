@@ -173,6 +173,47 @@ def mimic_models(xst_train, Y_train, xt_train, Yt_train, class_weights):
     return {'mlp': mlp, 'rf': rf, 'lr': lr, 'lstm': lstm}
 
 
+def mimic_ensemble_metrics(models, xst_validation, Y_validation, xt_valid, df_series_valid):
+    assert 'lstm' in models, 'missing lstm model'
+
+    others = list()
+    for k in models.keys():
+        if k == 'lstm':
+            lstm = models[k]
+            lstm_preds = pd.DataFrame(lstm.predict_proba(xt_valid)[:, 1])
+            lstm_preds.columns = ['lstm_prob_1']
+            lstm_labels = pd.DataFrame(df_series_valid.groupby(level='case', group_keys=False)['label']. \
+                                       agg('first')).reset_index()
+            lstm_preds = pd.concat([lstm_preds, lstm_labels], axis=1)
+        else:
+            model = models[k]
+            preds = pd.DataFrame(model.predict_proba(xst_validation)[:, 1])
+            preds.columns = [k + '_prob_1']
+            others.append(preds)
+
+    assert len(others), "non-lstm models not in models dictionaty..."
+
+    preds = pd.concat(others + [Y_validation.reset_index().drop('index', 1)], axis=1)
+    preds = preds.rename(columns={"subject_id": "case"})
+    preds['label'] = preds['label'].astype(int)
+
+    assert set(preds.case.unique()) == set(lstm_preds.case.unique()), "cannot join LSTM and Other models"
+
+    preds = preds.set_index('case')
+    lstm_preds = lstm_preds.set_index('case')
+    preds = preds.merge(lstm_preds['lstm_prob_1'], left_index=True, right_index=True)
+
+    preds['ensemble_prob'] = preds[[k + '_prob_1' for k in models.keys()]].mean(axis=1)
+
+    preds['class_1'] = (preds['ensemble_prob'] > 0.5).astype(int)
+
+    accuracy, precision, recall, f1, auc = mg.model_metrics(preds['ensemble_prob'],
+                                                            preds['class_1'],
+                                                            preds['label'])
+
+    return accuracy, precision, recall, f1, auc
+
+
 def last_val(x):
     vals = x[~np.isnan(x)]
     if len(vals):

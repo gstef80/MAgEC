@@ -1032,18 +1032,7 @@ def predict_classes(model, data):
         return model.predict(data).ravel()
 
 
-def evaluate(model, x_test, y_test):
-    # predict probabilities for test set
-    yhat_probs = predict(model, x_test)
-
-    # predict classes for test set
-    yhat_classes = predict_classes(model, x_test)
-
-    # reduce to 1d array
-    if len(yhat_probs[0].shape):
-        yhat_probs = yhat_probs[:, 0]
-        yhat_classes = yhat_classes[:, 0]
-
+def model_metrics(yhat_probs, yhat_classes, y_test):
     # accuracy: (tp + tn) / (p + n)
     accuracy = accuracy_score(y_test, yhat_classes)
     print('Accuracy: %f' % accuracy)
@@ -1061,14 +1050,29 @@ def evaluate(model, x_test, y_test):
     print('F1 score: %f' % f1)
 
     # ROC AUC
-    auc = roc_auc_score(y_test, yhat_probs)
-    print('ROC AUC: %f' % auc)
+    roc_auc = roc_auc_score(y_test, yhat_probs)
+    print('ROC AUC: %f' % roc_auc)
 
     # confusion matrix
     matrix = confusion_matrix(y_test, yhat_classes)
     print(matrix)
 
-    return accuracy, precision, recall, f1, auc
+    return accuracy, precision, recall, f1, roc_auc
+
+
+def evaluate(model, x_test, y_test):
+    # predict probabilities for test set
+    yhat_probs = predict(model, x_test)
+
+    # predict classes for test set
+    yhat_classes = predict_classes(model, x_test)
+
+    # reduce to 1d array
+    if len(yhat_probs[0].shape):
+        yhat_probs = yhat_probs[:, 0]
+        yhat_classes = yhat_classes[:, 0]
+
+    return model_metrics(yhat_probs, yhat_classes, y_test)
 
 
 def bold_column(table):
