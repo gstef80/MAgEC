@@ -1032,35 +1032,41 @@ def predict_classes(model, data):
         return model.predict(data).ravel()
 
 
-def model_metrics(yhat_probs, yhat_classes, y_test):
+def model_metrics(yhat_probs, yhat_classes, y_test, verbose=False):
     # accuracy: (tp + tn) / (p + n)
     accuracy = accuracy_score(y_test, yhat_classes)
-    print('Accuracy: %f' % accuracy)
+    if verbose:
+        print('Accuracy: %f' % accuracy)
 
     # precision tp / (tp + fp)
     precision = precision_score(y_test, yhat_classes)
-    print('Precision: %f' % precision)
+    if verbose:
+        print('Precision: %f' % precision)
 
     # recall: tp / (tp + fn)
     recall = recall_score(y_test, yhat_classes)
-    print('Recall: %f' % recall)
+    if verbose:
+        print('Recall: %f' % recall)
 
     # f1: 2 tp / (2 tp + fp + fn)
     f1 = f1_score(y_test, yhat_classes)
-    print('F1 score: %f' % f1)
+    if verbose:
+        print('F1 score: %f' % f1)
 
     # ROC AUC
     roc_auc = roc_auc_score(y_test, yhat_probs)
-    print('ROC AUC: %f' % roc_auc)
+    if verbose:
+        print('ROC AUC: %f' % roc_auc)
 
     # confusion matrix
     matrix = confusion_matrix(y_test, yhat_classes)
-    print(matrix)
+    if verbose:
+        print(matrix)
 
     return accuracy, precision, recall, f1, roc_auc
 
 
-def evaluate(model, x_test, y_test):
+def evaluate(model, x_test, y_test, verbose=False):
     # predict probabilities for test set
     yhat_probs = predict(model, x_test)
 
@@ -1072,7 +1078,7 @@ def evaluate(model, x_test, y_test):
         yhat_probs = yhat_probs[:, 0]
         yhat_classes = yhat_classes[:, 0]
 
-    return model_metrics(yhat_probs, yhat_classes, y_test)
+    return model_metrics(yhat_probs, yhat_classes, y_test, verbose=verbose)
 
 
 def bold_column(table):
@@ -1099,19 +1105,20 @@ def case_stats(data, case, timepoint=None, models=('lr', 'rf', 'mlp')):
         for model in models:
             l = [case, timepoint]
             magec = model + '_' + feat
-            magec = data[magec].values[0]
             perturb = 'perturb_' + feat + '_prob_' + model
-            perturb = data[perturb].values[0]
             orig = 'orig_prob_' + model
-            orig = data[orig].values[0]
-            l.append(model)
-            l.append(feat)
-            l.append(magec)
-            l.append(orig)
-            l.append(perturb)
-            l.append(100 * (orig - perturb) / orig)
-            out.append(pd.Series(l, index=['case', 'timepoint', 'model', 'feature',
-                                           'magec', 'risk', 'risk_new', 'risk_prc_reduct']))
+            if magec in data and perturb in data and orig in data:
+                magec = data[magec].values[0]
+                perturb = data[perturb].values[0]
+                orig = data[orig].values[0]
+                l.append(model)
+                l.append(feat)
+                l.append(magec)
+                l.append(orig)
+                l.append(perturb)
+                l.append(100 * (orig - perturb) / orig)
+                out.append(pd.Series(l, index=['case', 'timepoint', 'model', 'feature',
+                                               'magec', 'risk', 'risk_new', 'risk_prc_reduct']))
     return pd.DataFrame.from_records(out)
 
 
@@ -1144,7 +1151,8 @@ def magec_threshold(data, features, threshold=0.5, ensemble='ensemble', models=(
 
 
 def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
-               models=('lr', 'rf', 'mlp'), label='Outcome', limit=None, rotate=None):
+               models=('lr', 'rf', 'mlp'), label='Outcome',
+               limit=None, rotate=None, save=None, title=None, magec_ensemble=False):
 
     if timepoint is None:
         data = joined.loc[joined.case == case]
@@ -1179,6 +1187,7 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
     bar_fig.set_ylim([0, min(round(1.2*bar_fig.get_ylim()[1], 1), 1)])
     if rotate is not None:
         bar_fig.set_xticklabels(bar_fig.get_xticklabels(), rotation=rotate)
+    bar_fig.set_xlabel('')
 
     collabel0 = ["Case", str(case)]
 
@@ -1191,8 +1200,23 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
     celldata1 = [[model.upper(), round(data['orig_prob_'+model].values[0], 3)] for model in models]
 
     collabel2 = ["Model"] + ["MAgEC " + feat for feat in features]
-    celldata2 = [[model.upper()] + [round(data[model+'_'+feat].values[0], 3)
-                                    for feat in features] for model in models]
+    celldata2 = list()
+
+    if not magec_ensemble:
+        models = [m for m in models if m != 'ensemble']
+
+    for model in models:
+        add_model = True
+        line = list()
+        for feat in features:
+            f = model + '_' + feat
+            if f not in data:
+                add_model = False
+                break
+            else:
+                line.append(round(data[f].values[0], 3))
+        if add_model:
+            celldata2.append([model.upper()] + line)
 
     main_fig.axis('tight')
     main_fig.axis('off')
@@ -1221,6 +1245,13 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
     bold_column(table0)
     bold_column(table1)
     bold_column(table2)
+
+    if title is not None:
+        plt.title(title)
+
+    if save is not None:
+        plt.savefig(str(save)+'.png', bbox_inches='tight')
+
     return
 
 
