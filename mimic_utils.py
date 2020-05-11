@@ -60,26 +60,46 @@ def get_ml_series_data(df):
     return df_time
 
 
-def train_valid_ml(df_ml):
-    seed = 7
+def train_valid_ml(df_ml, test_size=0.2, seed=7, include_valid=None):
     np.random.seed(seed)
 
-    x = df_ml[list(set(df_ml.columns) - {'subject_id', 'label'})]
-    Y = df_ml[['subject_id', 'label']]
+    x_cols = list(set(df_ml.columns) - {'subject_id', 'label'})
+    y_cols = ['subject_id', 'label']
 
-    x_train, x_validation, Y_train, Y_validation = train_test_split(x.copy(), Y, test_size=0.2, random_state=seed)
+    cases = df_ml['subject_id'].unique()
+
+    np.random.shuffle(cases)  # inplace shuffle
+
+    valid_cases = cases[:int(len(cases) * test_size)]
+    train_cases = cases[int(len(cases) * test_size):]
+
+    if include_valid is not None:
+        valid_set = set(np.load(include_valid))
+        valid_cases = list(set(valid_cases).union(valid_set))
+        train_cases = list(set(train_cases) - valid_set)
+
+    train_cases = np.isin(df_ml['subject_id'], train_cases)
+    valid_cases = np.isin(df_ml['subject_id'], valid_cases)
+
+    xy_train = df_ml.loc[train_cases, :]
+    x_train = xy_train[x_cols].copy()
+    Y_train = xy_train[y_cols].copy()
+
+    xy_valid = df_ml.loc[valid_cases, :]
+    x_valid = xy_valid[x_cols].copy()
+    Y_valid = xy_valid[y_cols].copy()
 
     x_train = impute(x_train)
-    x_validation = impute(x_validation)
+    x_valid = impute(x_valid)
 
     stsc = StandardScaler()
     xst_train = stsc.fit_transform(x_train)
     xst_train = pd.DataFrame(xst_train, index=x_train.index, columns=x_train.columns)
 
-    xst_validation = stsc.transform(x_validation)
-    xst_validation = pd.DataFrame(xst_validation, index=x_validation.index, columns=x_validation.columns)
+    xst_valid = stsc.transform(x_valid)
+    xst_valid = pd.DataFrame(xst_valid, index=x_valid.index, columns=x_valid.columns)
 
-    return x_train, x_validation, stsc, xst_train, xst_validation, Y_train, Y_validation
+    return x_train, x_valid, stsc, xst_train, xst_valid, Y_train, Y_valid
 
 
 def train_valid_series(df_time, Y_validation):

@@ -6,6 +6,56 @@ def services_query():
     return "select subject_id, hadm_id, transfertime, prev_service, curr_service from services;"
 
 
+def notes_query(prior_hours=None):
+    if prior_hours is not None:
+        notesquery = """
+        select row_id as note_id, a.subject_id, a.hadm_id, chartdate, charttime, category, text
+        from noteevents a
+        join  
+        (select subject_id, hadm_id, event_time from mimic_users_study group by subject_id, hadm_id, event_time) b
+        on a.subject_id=b.subject_id and a.hadm_id=b.hadm_id 
+        where a.charttime between (b.event_time - interval '{}' hour) and b.event_time;
+        """
+        return notesquery.format(prior_hours)
+    else:
+        notesquery = """
+        select row_id as note_id, a.subject_id, a.hadm_id, chartdate, charttime, category, text
+        from noteevents a
+        join  
+        (select subject_id, hadm_id, event_time from mimic_users_study group by subject_id, hadm_id, event_time) b
+        on a.subject_id=b.subject_id and a.hadm_id=b.hadm_id 
+        where a.charttime < b.event_time;
+        """
+        return notesquery
+
+    
+def meds_query(prior_hours=None):
+    if prior_hours is not None:
+        medsquery = """
+        select row_id as note_id, a.subject_id, a.hadm_id, a.startdate, a.enddate, 
+        drug_type, drug, drug_name_poe, drug_name_generic, formulary_drug_cd, prod_strength, dose_val_rx, dose_unit_rx,
+        form_val_disp, form_unit_disp, route 
+        from prescriptions a
+        join  
+        (select subject_id, hadm_id, event_time from mimic_users_study group by subject_id, hadm_id, event_time) b
+        on a.subject_id=b.subject_id and a.hadm_id=b.hadm_id 
+        where a.startdate >= (b.event_time - interval '{}' hour) and a.enddate <= b.event_time;
+        """
+        return medsquery.format(prior_hours)
+    else:
+        medsquery = """
+        select row_id as note_id, a.subject_id, a.hadm_id, a.startdate, a.enddate, 
+        drug_type, drug, drug_name_poe, drug_name_generic, formulary_drug_cd, prod_strength, dose_val_rx, dose_unit_rx,
+        form_val_disp, form_unit_disp, route 
+        from prescriptions a
+        join  
+        (select subject_id, hadm_id, event_time from mimic_users_study group by subject_id, hadm_id, event_time) b
+        on a.subject_id=b.subject_id and a.hadm_id=b.hadm_id 
+        where a.enddate <= b.event_time;
+        """
+        return medsquery
+
+
 demo_template = \
 """
 SELECT ie.subject_id, ie.hadm_id, ie.icustay_id
