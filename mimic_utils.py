@@ -124,6 +124,7 @@ def train_valid_series(df_time, Y_validation):
 
     # scale
     stsc = StandardScaler()
+    series_means = df_series_train_X.mean()
     tmp = stsc.fit_transform(df_series_train_X)
     df_series_train_X = pd.DataFrame(tmp, index=df_series_train_X.index, columns=df_series_train_X.columns)
     tmp = stsc.transform(df_series_valid_X)
@@ -144,7 +145,7 @@ def train_valid_series(df_time, Y_validation):
     xt_train, Yt_train, _ = mg.zero_pad(df_series_train)
     xt_valid, Yt_valid, _ = mg.zero_pad(df_series_valid)
 
-    return stsc, df_series_train, df_series_valid, xt_train, Yt_train, xt_valid, Yt_valid
+    return stsc, series_means, df_series_train, df_series_valid, xt_train, Yt_train, xt_valid, Yt_valid
 
 
 def mimic_models(xst_train, Y_train, xt_train, Yt_train, class_weights):
@@ -313,3 +314,44 @@ def consensus_heatmap(consensus, timepoint=10):
     ax.set_title('Consensus')
     ax.invert_xaxis()
     return
+
+
+def feat_plot(joined, cohort, index, title='', save=False):
+    data = joined.loc[index]
+    case, t_0, label, orig_prob, new_risk = data[['case', 'timepoint', 'label',
+                                                  'orig_prob_ensemble', 'new_risk']]
+    best_feat = joined.loc[index]['best_feat']
+
+    xy = cohort[cohort['subject_id'] == case][['timepoint', best_feat]].values
+    x = [int(x[0]) for x in xy]
+    yy = [x[1] for x in xy]
+    y_0 = [yy[i] for i in range(len(x)) if x[i] == t_0]
+    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(10, 12))
+    ax[0].plot(x, yy, 'bo--')
+    txt = 'Case {}: Hourly average {}  (Outcome={})'
+    ax[0].set_title(txt.format(case, best_feat if not title else title, label))
+    ax[0].set_ylabel(best_feat)
+    ax[0].set_xlabel('hours to event')
+    ax[0].plot(t_0, y_0, 'rx')
+    ax[0].invert_xaxis()
+    ax[0].tick_params(labelbottom=True)
+    xyzw = joined[joined.case == case][['timepoint', 'orig_prob_ensemble', 'best_feat', 'new_risk']].values
+    x = [int(x[0]) for x in xyzw]
+    y = [x[1] for x in xyzw]
+    z = [x[2] for x in xyzw]
+    w = [x[3] for x in xyzw]
+    ax[1].plot(x, y, 'rx--')
+    ax[1].plot(np.linspace(ax[1].get_xlim()[0], ax[1].get_xlim()[1], 10), 0.5 * np.ones(10), '--')
+    for i, txt in enumerate(z):
+        if (w[i] < 0.5 < y[i]) or y[i] > 0.8:
+            ax[1].annotate(' ' + txt + ' = {}\n perturb. risk = {:.2g}'.format(yy[i], w[i]), (x[i], y[i]))
+    txt = 'Case {}: Hourly Estimated Ensemble Risk (Outcome: {})'
+    ax[1].set_title(txt.format(case, label))
+    ax[1].set_ylabel('Ensemble Risk')
+    ax[1].set_xlabel('hours to event')
+    ax[0].grid('on')
+    ax[1].grid('on')
+    ax[1].set_ylim([0.2, 0.9])
+    if save:
+        plt.savefig('case{}_series.png'.format(case), bbox_inches='tight')
+
