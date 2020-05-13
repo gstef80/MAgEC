@@ -333,7 +333,7 @@ def plot_risk(ax, x, y, z, w, yy, case, label):
         if np.isnan(yy[i]):
             continue
         if (w[i] < 0.5 < y[i]):
-            msg = txt + ' = {:.0f}\n perturb. risk = {:.2g}'.format(yy[i], w[i])
+            msg = txt + ' = {:.2f}\n perturb. risk = {:.2g}'.format(yy[i], w[i])
             texts.append(ax.text(x[i], y[i], msg))
 
     f = interpolate.interp1d(x, y)
@@ -365,7 +365,7 @@ def best_feat_plot(joined, cohort, index, title='', save=False):
     xy = cohort[cohort['subject_id'] == case][['timepoint', best_feat]].values
     x = [int(x[0]) for x in xy]
     yy = [x[1] for x in xy]
-    y_0 = [yy[i] for i in range(len(x)) if x[i] == t_0]
+
     fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(10, 12))
 
     plot_feature(ax[0], x, yy, best_feat, case, label, title=title)
@@ -375,8 +375,7 @@ def best_feat_plot(joined, cohort, index, title='', save=False):
     y = [x[1] for x in xyzw]
     z = [x[2] for x in xyzw]
     w = [x[3] for x in xyzw]
+    zz = [cohort[(cohort['subject_id'] == case) & (cohort['timepoint'] == x[i])][feat].values[0]
+          for i, feat in enumerate(z)]
 
-    plot_risk(ax[1], x, y, z, w, yy, case, label)
-
-    if save:
-        plt.savefig('case{}_series.png'.format(case), bbox_inches='tight')
+    plot_risk(ax[1], x, y, z, w, zz, case, label)
