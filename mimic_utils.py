@@ -379,3 +379,37 @@ def best_feat_plot(joined, cohort, index, title='', save=False):
           for i, feat in enumerate(z)]
 
     plot_risk(ax[1], x, y, z, w, zz, case, label)
+
+
+def best_feature(data, cols, feat=None):
+    models = list(set([c.split('_')[-1] for c in cols]))
+    if feat is not None:
+        features = [feat]
+    else:
+        features = list(set(['_'.join(c.split('_')[1:-2]) for c in cols]))
+    best_feat = ''
+    new_risk = None
+    for feat in features:
+        feat_risks = []
+        orig_probs = []
+        for model in models:
+            magec = model + '_' + feat
+            perturb = 'perturb_' + feat + '_prob_' + model
+            orig = 'orig_prob_' + model
+            if magec in data and perturb in data and orig in data:
+                perturb = data[perturb]
+                orig = data[orig]
+                feat_risks.append(perturb)
+                orig_probs.append(orig)
+        # model average
+        feat_risk = np.mean(feat_risks)
+        orig_prob = np.mean(orig_probs)
+        if new_risk is None or feat_risk < new_risk and feat_risk < orig_prob:
+            new_risk = feat_risk
+            best_feat = feat
+    return pd.Series((best_feat, new_risk), index=['best_feat', 'new_risk'])
+
+
+def print_notes(df_notes, case):
+    print('\n***NEXT NOTE***\n\n'.join(df_notes[df_notes.subject_id == case].\
+                                       sort_values('charttime')['text'].values.tolist()))
