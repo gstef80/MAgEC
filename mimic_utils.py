@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import interpolate
 from adjustText import adjust_text
+from mimic_queries import meds_query, notes_query
+from matplotlib.font_manager import FontProperties
 
 
 vitals = ['heartrate_mean', 'sysbp_mean', 'diasbp_mean', 'meanbp_mean',
@@ -49,15 +51,60 @@ def get_mimic_data():
     return df
 
 
-def get_ml_data(df):
+def get_cohort_meds():
+    sqluser = 'postgres'
+    dbname = 'mimic'
+    schema_name = 'mimiciii'
+    engine = create_engine("postgresql+psycopg2://{}:{}@/{}".format(sqluser, sqluser, dbname))
+    try:
+        conn = engine.connect()
+        conn.execute('SET search_path to ' + schema_name)
+        df_meds = pd.read_sql(meds_query(prior_hours=48), conn)
+        conn.close()
+    except Exception as e:
+        raise e
+    return df_meds
+
+
+def get_cohort_notes():
+    sqluser = 'postgres'
+    dbname = 'mimic'
+    schema_name = 'mimiciii'
+    engine = create_engine("postgresql+psycopg2://{}:{}@/{}".format(sqluser, sqluser, dbname))
+    try:
+        conn = engine.connect()
+        conn.execute('SET search_path to ' + schema_name)
+        df_notes = pd.read_sql(notes_query(prior_hours=48), conn)
+        conn.close()
+    except Exception as e:
+        raise e
+    return df_notes
+
+
+def get_pt_admission(case):
+    sqluser = 'postgres'
+    dbname = 'mimic'
+    schema_name = 'mimiciii'
+    engine = create_engine("postgresql+psycopg2://{}:{}@/{}".format(sqluser, sqluser, dbname))
+    try:
+        conn = engine.connect()
+        conn.execute('SET search_path to ' + schema_name)
+        df_pt = pd.read_sql("select * from admissions where subject_id={};".format(case), conn)
+        conn.close()
+    except Exception as e:
+        raise e
+    return df_pt
+
+
+def get_ml_data(df, outcome='ventilated'):
     df_ml = df.set_index(['subject_id', 'timepoint']).groupby(level=0, group_keys=False). \
-        apply(featurize).reset_index()
+        apply(lambda x: featurize(x, outcome)).reset_index()
     return df_ml
 
 
-def get_ml_series_data(df):
+def get_ml_series_data(df, outcome='ventilated'):
     df_time = df.set_index(['subject_id']).groupby(level=0, group_keys=False). \
-        apply(featurize_time).apply(pd.Series.explode).reset_index()
+        apply(lambda x: featurize_time(x, outcome)).apply(pd.Series.explode).reset_index()
     return df_time
 
 
@@ -244,7 +291,7 @@ def last_val(x):
         return None
 
 
-def featurize_time(df):
+def featurize_time(df, outcome):
     out = dict()
     for i in range(len(df)):
         for lab in labs:
@@ -272,11 +319,11 @@ def featurize_time(df):
             else:
                 out[other].append(val)
         out['timepoint'] = df.timepoint.values
-        out['label'] = [int(x) for x in df.ventilated.values]
+        out['label'] = [int(x) for x in df[outcome].values]
     return pd.Series(out)
 
 
-def featurize(df):
+def featurize(df, outcome):
     out = dict()
     for lab in labs:
         out[lab] = last_val(df[lab])
@@ -286,7 +333,7 @@ def featurize(df):
         out[comob] = last_val(df[comob])
     for other in others:
         out[other] = last_val(df[other])
-    out['label'] = int(df.ventilated.iloc[-1])
+    out['label'] = int(df[outcome].iloc[-1])
     return pd.Series(out)
 
 
@@ -325,7 +372,7 @@ def plot_risk(ax, x, y, z, w, yy, case, label):
     ax.set_ylabel('Ensemble Risk')
     ax.set_xlabel('hours to event')
     ax.grid('on')
-    ax.set_ylim([0.2, 0.9])
+    # ax.set_ylim([0.2, 0.9])
 
     texts = []
 
@@ -380,6 +427,11 @@ def best_feat_plot(joined, cohort, index, title='', save=False):
 
     plot_risk(ax[1], x, y, z, w, zz, case, label)
 
+    if save:
+        plt.savefig('case_{}_series.png'.format(case))
+
+    return fig, ax
+
 
 def best_feature(data, cols, feat=None):
     models = list(set([c.split('_')[-1] for c in cols]))
@@ -408,6 +460,116 @@ def best_feature(data, cols, feat=None):
             new_risk = feat_risk
             best_feat = feat
     return pd.Series((best_feat, new_risk), index=['best_feat', 'new_risk'])
+
+
+def full_panel_plot(train_cols, features, stsc, joined, cohort, index, label='Outcome',
+                    models=('lr', 'rf', 'mlp', 'lstm'),
+                    limit=None, rotate=None, save=None, title=None, magec_ensemble=False):
+    tmp = joined.loc[index]
+    case = tmp.case
+    timepoint = tmp.timepoint
+
+    data = joined.loc[(joined.case == case) & (joined.timepoint == timepoint)]
+    case_df = mg.case_stats(data, case, timepoint, models=models)
+
+    if limit is not None:
+        topK = case_df.groupby('feature')['risk_new'].mean().sort_values()[:limit].index.values
+        case_df = case_df[np.isin(case_df['feature'], topK)]
+        train_cols_idx = [train_cols.to_list().index(x) for x in topK]
+        features = topK
+    else:
+        train_cols_idx = [i for i in range(len(train_cols))]
+
+    fig = plt.figure(figsize=(16, 12))
+    grid = plt.GridSpec(9, 7, wspace=0.2, hspace=0.1)
+
+    series_fig1 = fig.add_subplot(grid[:3, :3])
+    series_fig2 = fig.add_subplot(grid[:3, 3:])
+    main_fig = fig.add_subplot(grid[4, :3])
+    ml_fig = fig.add_subplot(grid[6, :3])
+    bar_fig = fig.add_subplot(grid[3:7, 3:])
+    mg_fig = fig.add_subplot(grid[8, :])
+
+    base = case_df.groupby('feature')['risk'].mean()
+    bar_fig = sns.barplot(x="feature", y="risk_new", data=case_df, ci=None, ax=bar_fig)
+    bar_fig.plot(np.linspace(bar_fig.get_xlim()[0], bar_fig.get_xlim()[1], 10),
+                 np.mean(base.values) * np.ones(10), '--')
+    bar_fig.legend(['current risk', 'estimated risk'], loc='upper right')
+    bar_fig.set_ylabel('estimated risk')
+    bar_fig.set_ylim([0, min(round(1.2 * bar_fig.get_ylim()[1], 1), 1)])
+    if rotate is not None:
+        bar_fig.set_xticklabels(bar_fig.get_xticklabels(), rotation=rotate)
+    bar_fig.set_xlabel('')
+
+    collabel0 = ["Case", str(case)]
+
+    cell_feat = [feat for feat in train_cols[train_cols_idx]]
+    cell_vals = [round(val, 3) for val in stsc.inverse_transform(data[train_cols])[0][train_cols_idx]]
+    celldata0 = [[x[0], x[1]] for x in zip(cell_feat, cell_vals)] + [['True Outcome', data[label].values[0]]]
+
+    collabel1 = ["Model", "Predicted Risk"]
+
+    celldata1 = [[model.upper(), round(data['orig_prob_' + model].values[0], 3)] for model in models]
+
+    collabel2 = ["Model"] + ["MAgEC " + feat for feat in features]  # + ["Sum"]
+
+    celldata2 = list()
+
+    if not magec_ensemble:
+        models = [m for m in models if m != 'ensemble']
+
+    for model in models:
+        add_model = True
+        line = list()
+        for feat in features:
+            f = model + '_' + feat
+            if f not in data:
+                add_model = False
+                break
+            else:
+                line.append(round(data[f].values[0], 3))
+        if add_model:
+            celldata2.append([model.upper()] + line)
+
+    celldata2_sum = np.sum(np.array([t[1:] for t in celldata2]), axis=0)
+    celldata2.append(['SUM'] + [round(t, 2) for t in celldata2_sum])
+
+    main_fig.axis('tight')
+    main_fig.axis('off')
+    ml_fig.axis('tight')
+    ml_fig.axis('off')
+    mg_fig.axis('tight')
+    mg_fig.axis('off')
+
+    table0 = main_fig.table(cellText=celldata0, colLabels=collabel0, loc='center', cellLoc='center')
+    table1 = ml_fig.table(cellText=celldata1, colLabels=collabel1, loc='center', cellLoc='center')
+    table2 = mg_fig.table(cellText=celldata2, colLabels=collabel2, loc='center', cellLoc='center')
+
+    table0.set_fontsize(12)
+    table0.scale(1.5, 1.5)
+
+    table1.set_fontsize(12)
+    table1.scale(1.5, 1.5)
+
+    table2.set_fontsize(12)
+    table2.scale(1.5, 1.5)
+
+    table0.auto_set_column_width(col=list(range(len(collabel0))))
+    table1.auto_set_column_width(col=list(range(len(collabel1))))
+    table2.auto_set_column_width(col=list(range(len(collabel2))))
+
+    mg.bold_column(table0)
+    mg.bold_column(table1)
+    mg.bold_column(table2)
+
+    for (row, col), cell in table2.get_celld().items():
+        if row == len(models) + 1:
+            cell.set_text_props(fontproperties=FontProperties(weight='bold'))
+
+    if save is not None:
+        plt.savefig(str(save) + '.png', bbox_inches='tight')
+
+    return fig
 
 
 def print_notes(df_notes, case):

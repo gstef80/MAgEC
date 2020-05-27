@@ -1252,7 +1252,7 @@ def panel_plot(train_cols, features, stsc, joined, case, timepoint=None,
     if save is not None:
         plt.savefig(str(save)+'.png', bbox_inches='tight')
 
-    return
+    return fig
 
 
 def build_base_rbos(mlp, sigmoidRF, lr, x_validation_p, y_validation_p, features, weights, baseline=0.01):
