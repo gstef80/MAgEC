@@ -125,11 +125,25 @@ def static_prediction(model, target_data, score_preprocessing,
     elif label == 'perturb':
         df = target_data.loc[idx].copy()
         if baseline is None:
-            df.loc[:, var_name] = epsilons[var_name]  # perturb to new value
+            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
+                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
+                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
+            elif type(epsilons[var_name]) is list:
+                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
+            else:
+                new_val = epsilons[var_name]
+            df.loc[:, var_name] = new_val
         else:
-            z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
-            tmp = df.loc[:, var_name]
-            df.loc[:, var_name] = tmp - z_sign * baseline * tmp
+            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
+                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
+                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
+            elif type(epsilons[var_name]) is list:
+                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
+            else:
+                z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
+                tmp = df.loc[:, var_name]
+                new_val = tmp - tmp.multiply(z_sign).multiply(z_sign)
+            df.loc[:, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
     probs = predict(model, df)
@@ -150,11 +164,25 @@ def series_prediction(model, target_data, score_preprocessing,
         df = target_data.copy()
         idx = df.index.get_level_values('timepoint') == timepoint
         if baseline is None:
-            df.loc[idx, var_name] = epsilons[var_name]  # perturb to new value
+            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
+                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
+                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
+            elif type(epsilons[var_name]) is list:
+                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
+            else:
+                new_val = epsilons[var_name]
+            df.loc[idx, var_name] = new_val  # perturb to new value
         else:
-            z_sign = (df.loc[idx, var_name] >= 0) * 2 - 1
-            tmp = df.loc[idx, var_name]
-            df.loc[idx, var_name] = tmp - z_sign * baseline * tmp
+            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
+                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
+                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
+            elif type(epsilons[var_name]) is list:
+                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
+            else:
+                z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
+                tmp = df.loc[:, var_name]
+                new_val = tmp - tmp.multiply(z_sign).multiply(z_sign)
+            df.loc[idx, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
     df = slice_series(df, timepoint, reverse=reverse)
@@ -225,7 +253,8 @@ def z_perturbation(model, target_data,
     epsilons = dict()
     for var_name in features:
         if var_name in binary:
-            epsilons[var_name] = target_data[var_name].value_counts().idxmax()  # most frequent value
+            epsilons[var_name] = target_data[var_name].unique().tolist()
+            # epsilons[var_name] = target_data[var_name].value_counts().idxmax()  # most frequent value
         else:
             epsilons[var_name] = epsilon_value
 
