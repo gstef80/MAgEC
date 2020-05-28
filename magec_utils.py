@@ -140,9 +140,8 @@ def static_prediction(model, target_data, score_preprocessing,
             elif type(epsilons[var_name]) is list:
                 raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
             else:
-                z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
                 tmp = df.loc[:, var_name]
-                new_val = tmp - tmp.multiply(z_sign).multiply(z_sign)
+                new_val = tmp - tmp * baseline
             df.loc[:, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
@@ -179,9 +178,8 @@ def series_prediction(model, target_data, score_preprocessing,
             elif type(epsilons[var_name]) is list:
                 raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
             else:
-                z_sign = (df.loc[:, var_name] >= 0) * 2 - 1
                 tmp = df.loc[:, var_name]
-                new_val = tmp - tmp.multiply(z_sign).multiply(z_sign)
+                new_val = tmp - tmp * baseline
             df.loc[idx, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
