@@ -17,6 +17,7 @@ from scipy import interpolate
 from adjustText import adjust_text
 from mimic_queries import meds_query, notes_query
 from matplotlib.font_manager import FontProperties
+from sklearn import svm
 
 
 vitals = ['heartrate_mean', 'sysbp_mean', 'diasbp_mean', 'meanbp_mean',
@@ -221,28 +222,35 @@ def mimic_models(xst_train, Y_train, xt_train, Yt_train, class_weights):
 
     mlp = KerasClassifier(build_fn=create_mlp, epochs=100, batch_size=64, verbose=0)
     mlp.fit(xst_train, Y_train['label'], epochs=100, batch_size=64, verbose=0)
+    print('Built MLP classifier!')
 
-    rf = CalibratedClassifierCV(RandomForestClassifier(n_estimators=800,
-                                                       min_samples_split=2,
-                                                       min_samples_leaf=4,
-                                                       max_features='sqrt',
-                                                       max_depth=90,
-                                                       bootstrap=True,
-                                                       n_jobs=-1,
-                                                       class_weight="balanced"),
-                                method='sigmoid', cv=5)
-    rf.fit(xst_train, Y_train['label'])
+    sv = svm.SVC(probability=True, class_weight="balanced")
+    sv.fit(xst_train, Y_train['label'])
+    print('Built SVM classifier!')
+
+    # rf = CalibratedClassifierCV(RandomForestClassifier(n_estimators=800,
+    #                                                    min_samples_split=2,
+    #                                                    min_samples_leaf=4,
+    #                                                    max_features='sqrt',
+    #                                                    max_depth=90,
+    #                                                    bootstrap=True,
+    #                                                    n_jobs=-1,
+    #                                                    class_weight="balanced"),
+    #                             method='sigmoid', cv=5)
+    # rf.fit(xst_train, Y_train['label'])
 
     lr = LogisticRegression(C=1., class_weight='balanced', solver='lbfgs')
     lr.fit(xst_train, Y_train['label'])
+    print('Built LR classifier!')
 
     lstm = KerasClassifier(build_fn=create_lstm, epochs=100, batch_size=64, verbose=0)
     lstm.fit(xt_train, Yt_train, epochs=100, batch_size=64, verbose=0)
+    print('Built LSTM classifier!')
 
-    return {'mlp': mlp, 'rf': rf, 'lr': lr, 'lstm': lstm}
+    return {'mlp': mlp, 'svm': sv, 'lr': lr, 'lstm': lstm}
 
 
-def mimic_ensemble_metrics(models, xst_validation, Y_validation, xt_valid, df_series_valid):
+def mimic_ensemble_metrics(models, xst_validation, Y_validation, xt_valid, df_series_valid, verbose=False):
     assert 'lstm' in models, 'missing lstm model'
 
     others = list()
@@ -278,7 +286,8 @@ def mimic_ensemble_metrics(models, xst_validation, Y_validation, xt_valid, df_se
 
     accuracy, precision, recall, f1, auc = mg.model_metrics(preds['ensemble_prob'],
                                                             preds['class_1'],
-                                                            preds['label'])
+                                                            preds['label'],
+                                                            verbose=verbose)
 
     return accuracy, precision, recall, f1, auc
 
