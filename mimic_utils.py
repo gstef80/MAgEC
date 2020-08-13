@@ -292,6 +292,14 @@ def mimic_ensemble_metrics(models, xst_validation, Y_validation, xt_valid, df_se
     return accuracy, precision, recall, f1, auc
 
 
+def first_val(x):
+    vals = x[~np.isnan(x)]
+    if len(vals):
+        return vals[0]
+    else:
+        return None
+
+
 def last_val(x):
     vals = x[~np.isnan(x)]
     if len(vals):
@@ -332,16 +340,20 @@ def featurize_time(df, outcome):
     return pd.Series(out)
 
 
-def featurize(df, outcome):
+def featurize(df, outcome, last=True):
     out = dict()
+    if last:
+        f = last_val
+    else:
+        f = first_val
     for lab in labs:
-        out[lab] = last_val(df[lab])
+        out[lab] = f(df[lab])
     for vital in vitals:
-        out[vital] = last_val(df[vital])
+        out[vital] = f(df[vital])
     for comob in comobs:
-        out[comob] = last_val(df[comob])
+        out[comob] = f(df[comob])
     for other in others:
-        out[other] = last_val(df[other])
+        out[other] = f(df[other])
     out['label'] = int(df[outcome].iloc[-1])
     return pd.Series(out)
 
@@ -450,9 +462,13 @@ def best_feature(data, cols, feat=None):
         features = list(set(['_'.join(c.split('_')[1:-2]) for c in cols]))
     best_feat = ''
     new_risk = None
+    top_rank = ''
+    top_rank_val = None
+    top_rank_prob = None
     for feat in features:
         feat_risks = []
         orig_probs = []
+        rank_vals = []
         for model in models:
             magec = model + '_' + feat
             perturb = 'perturb_' + feat + '_prob_' + model
@@ -462,13 +478,20 @@ def best_feature(data, cols, feat=None):
                 orig = data[orig]
                 feat_risks.append(perturb)
                 orig_probs.append(orig)
+                rank_vals.append(data[magec])
         # model average
         feat_risk = np.mean(feat_risks)
         orig_prob = np.mean(orig_probs)
+        rank_val = np.sum(rank_vals)
         if new_risk is None or feat_risk < new_risk and feat_risk < orig_prob:
             new_risk = feat_risk
             best_feat = feat
-    return pd.Series((best_feat, new_risk), index=['best_feat', 'new_risk'])
+        if top_rank_val is None or rank_val < top_rank_val:
+            top_rank_prob = feat_risk
+            top_rank = feat
+            top_rank_val = rank_val
+    return pd.Series((best_feat, new_risk, top_rank, top_rank_val,  top_rank_prob),
+                     index=['best_feat', 'new_risk', 'rank_feat', 'rank_val', 'rank_risk'])
 
 
 def full_panel_plot(train_cols, features, stsc, joined, cohort, index, label='Outcome',
