@@ -751,7 +751,7 @@ def magec_consensus(magec_ranks,
             for model in magecs_feats.keys():
                 orig_prob = row['orig_prob_' + model]
                 feat_prob = row['perturb_' + winner_feat + '_prob_' + model]
-                ratio = 100*(orig_prob-feat_prob) / orig_prob
+                ratio = 100*(orig_prob-feat_prob+1e-6) / (orig_prob+1e-6)
                 all_model_ratios.append(ratio)
                 if model in winner_models:
                     model_ratios.append(ratio)
