@@ -6,6 +6,11 @@ Predicting Drivers in Unexpected Mechanical Ventilation"*.
 <br>
 Paper presented at AMIA 2021 Virtual Informatics Summit. 
 <br>
+
+### Code Documentation
+Code is currently largely undocumented. Please feel free to 
+open an issue if you need help with running MAgEC. 
+
 ### Code Structure
 ```shell
 .
