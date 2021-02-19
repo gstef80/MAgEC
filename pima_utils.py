@@ -14,7 +14,7 @@ from keras.wrappers.scikit_learn import KerasClassifier
 import magec_utils as mg
 
 
-def pima_data():
+def pima_data(filename=None):
     """
     Load PIMA data, impute, scale and train/valid split
     :return:
@@ -27,7 +27,8 @@ def pima_data():
         out[cols] = out[cols].fillna(out[cols].mean())
         return out
 
-    pima = pd.read_csv('diabetes.csv')
+    filename = 'diabetes.csv' if filename is None else filename
+    pima = pd.read_csv(filename)
     seed = 7
     np.random.seed(seed)
     x = pima.iloc[:, 0:8]
@@ -92,6 +93,7 @@ def pima_models(x_train_p, y_train_p):
         return mlp
 
     mlp = KerasClassifier(build_fn=create_mlp, epochs=100, batch_size=64, verbose=0)
+    mlp._estimator_type = "classifier"
     mlp.fit(x_train_p, y_train_p)
 
     rf = RandomForestClassifier(n_estimators=1000)
@@ -106,6 +108,7 @@ def pima_models(x_train_p, y_train_p):
     estimators = [('lr', lr), ('rf', sigmoidRF), ('mlp', mlp)]
     # create our voting classifier, inputting our models
     ensemble = VotingClassifier(estimators, voting='soft')
+    ensemble._estimator_type = "classifier"
     ensemble.fit(x_train_p, y_train_p)
 
     return {'mlp': mlp, 'rf': sigmoidRF, 'lr': lr, 'ensemble': ensemble}
