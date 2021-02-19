@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import sklearn
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -13,6 +12,7 @@ from keras.layers import Dense
 from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
 import magec_utils as mg
+import os
 
 
 def pima_data(filename=None):
@@ -28,10 +28,10 @@ def pima_data(filename=None):
         out[cols] = out[cols].fillna(out[cols].mean())
         return out
 
-    if filename is not None:
-        pima = pd.read_csv(filename)
-    else:
-        pima = sklearn.datasets.load_diabetes()
+    filename = os.path.join(os.path.dirname(__file__), './data/diabetes.csv') \
+        if filename is None else filename
+    pima = pd.read_csv(filename)
+
     seed = 7
     np.random.seed(seed)
     x = pima.iloc[:, 0:8]
