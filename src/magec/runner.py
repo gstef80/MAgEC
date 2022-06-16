@@ -9,7 +9,7 @@ pd.set_option('display.max_columns', None)
 warnings.filterwarnings('ignore') 
 
 
-def run(diabs_path='../diabetes.csv'):
+def run(diabs_path='../data/diabetes.csv'):
 
     pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p = pm.pima_data(diabs_path)
 
