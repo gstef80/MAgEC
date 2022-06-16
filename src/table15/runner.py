@@ -43,7 +43,19 @@ def run(diabs_path='../data/diabetes.csv'):
 
     features = ['BloodPressure', 'BMI', 'Glucose', 'Insulin', 'SkinThickness']
 
+    joined = mg.magec_models(magecs_mlp, 
+                         magecs_rf, 
+                         magecs_lr, 
+                         magecs_en,
+                         Xdata=x_validation_p, 
+                         Ydata=y_validation_p, 
+                         features=features)
+
+    weights_auc = {'mlp': mlp_auc, 'rf': rf_auc, 'lr': lr_auc}
+    weights_recall = {'mlp': mlp_recall, 'rf': rf_recall, 'lr': lr_recall}
     models = ('mlp', 'rf', 'lr')
+
+
     ranks = mg.magec_rank(joined, rank=len(features), features=features)
     consensus = mg.magec_consensus(ranks, use_weights=True, models=models)
 
