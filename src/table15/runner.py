@@ -51,8 +51,6 @@ def run(diabs_path='../data/diabetes.csv'):
                          Ydata=y_validation_p, 
                          features=features)
 
-    weights_auc = {'mlp': mlp_auc, 'rf': rf_auc, 'lr': lr_auc}
-    weights_recall = {'mlp': mlp_recall, 'rf': rf_recall, 'lr': lr_recall}
     models = ('mlp', 'rf', 'lr')
 
 
