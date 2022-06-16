@@ -74,6 +74,8 @@ def pima_data(filename=None):
     y_train_p.set_index(['case', 'timepoint'], inplace=True)
     y_train_p = y_train_p.sort_index(axis=1)
 
+    print('1111111111111111111111111111111111111111111111111111111111111111111')
+
     return pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
 
 

@@ -1,4 +1,5 @@
 import sys
+from turtle import shape
 sys.path.insert(0, '../')
 
 import warnings
@@ -12,6 +13,8 @@ warnings.filterwarnings('ignore')
 def run(diabs_path='../data/diabetes.csv'):
 
     pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p = pm.pima_data(filename=diabs_path)
+    print(x_train_p.shape)
+    print(y_train_p.shape)
 
     models = pm.pima_models(x_train_p, y_train_p)
 
