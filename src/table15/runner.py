@@ -53,8 +53,10 @@ def run(diabs_path='../data/diabetes.csv'):
 
     models = ('mlp', 'rf', 'lr')
 
+    print(joined.head())
 
-    ranks = mg.magec_rank(joined, rank=len(features), features=features)
-    consensus = mg.magec_consensus(ranks, use_weights=True, models=models)
 
-    print(consensus.head())
+    # ranks = mg.magec_rank(joined, rank=len(features), features=features)
+    # consensus = mg.magec_consensus(ranks, use_weights=True, models=models)
+
+    # print(consensus.head())
