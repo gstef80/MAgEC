@@ -53,7 +53,6 @@ def run(diabs_path='../data/diabetes.csv'):
 
     models = ('mlp', 'rf', 'lr')
 
-    print(joined.head())
 
 
     # ranks = mg.magec_rank(joined, rank=len(features), features=features)
