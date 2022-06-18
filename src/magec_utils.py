@@ -116,7 +116,8 @@ def slice_series(target_data, tt, reverse=True):
         df = target_data.loc[target_data.index.get_level_values('timepoint') <= tt]
     return df
 
-
+### TODO: This function appears to be working differently than paper. If epsilono_value=0 (which happens in all runners) 
+# then any scaler value will be perturbed to a value of 0 when baseline=0. This correct behavior should be to set the value to the sample mean
 def static_prediction(model, target_data, score_preprocessing,
                       timepoint, var_name, epsilons, label='orig', baseline=None):
     idx = target_data.index.get_level_values('timepoint') == timepoint
