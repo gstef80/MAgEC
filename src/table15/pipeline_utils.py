@@ -12,7 +12,7 @@ def get_from_configs(configs: Dict, key: str, param_type: str=None):
         for k in configs:
                 if k == key:
                     return configs[k]
-    for k in configs:
+    for k in configs['CONFIGS']:
         if k == key:
-            return configs[k]
+            return configs['CONFIGS'][k]
     return None
