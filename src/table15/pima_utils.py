@@ -12,10 +12,11 @@ from keras.layers import Dense
 from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
 import magec_utils as mg
+import pipeline_utils as pu
 import os
 
 
-def pima_data(filename=None):
+def pima_data(configs):
     """
     Load PIMA data, impute, scale and train/valid split
     :return:
@@ -23,21 +24,23 @@ def pima_data(filename=None):
 
     def impute(df):
         out = df.copy()
-        cols = list(set(df.columns) - {'Outcome', 'Pregnancies'})
+        exclude_cols = pu.get_from_configs(configs, 'EXCLUDE_COLS')
+        cols = list(set(df.columns) - set(exclude_cols))
         out[cols] = out[cols].replace(0, np.NaN)
         out[cols] = out[cols].fillna(out[cols].mean())
         return out
 
-    filename = os.path.join(os.path.dirname(__file__), './data/diabetes.csv') \
-        if filename is None else filename
+    filename = pu.get_from_configs('DIABS_PATH')
     pima = pd.read_csv(filename)
 
-    seed = 7
-    np.random.seed(seed)
-    x = pima.iloc[:, 0:8]
-    Y = pima.iloc[:, 8]
+    random_seed = pu.get_from_configs('RANDOM_SEED', param_type='hyperparams')
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    x = pima.iloc[:, 0:-1]
+    Y = pima.iloc[:, -1]
+    test_size = pu.get_from_configs('TEST_SIZE', param_type='hyperparams')
 
-    x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=0.2, random_state=seed)
+    x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=test_size, random_state=random_seed)
 
     x_train = impute(x_train)
     x_validation = impute(x_validation)
@@ -73,8 +76,6 @@ def pima_data(filename=None):
     y_train_p['case'] = np.arange(len(y_train_p))
     y_train_p.set_index(['case', 'timepoint'], inplace=True)
     y_train_p = y_train_p.sort_index(axis=1)
-
-    print('1111111111111111111111111111111111111111111111111111111111111111111')
 
     return pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
 

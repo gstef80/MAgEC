@@ -1,18 +1,18 @@
-import sys
-from turtle import shape
-sys.path.insert(0, '../')
-
 import warnings
+import yaml
+import json
 import magec_utils as mg
 import pima_utils as pm
+import pipeline_utils as pu
 import pandas as pd
-pd.set_option('display.max_columns', None)
 warnings.filterwarnings('ignore') 
 
 
-def run(diabs_path='../data/diabetes.csv'):
+def run(configs_path='../configs/pima_diabetes.yaml'):
+    configs = pu.yaml_parser(configs_path)
+    diabs_path = pu.get_from_configs('DIABS_PATH')
 
-    pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p = pm.pima_data(filename=diabs_path)
+    pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p = pm.pima_data(configs)
     print(x_train_p.shape)
     print(y_train_p.shape)
 
@@ -22,7 +22,6 @@ def run(diabs_path='../data/diabetes.csv'):
     rf = models['rf']
     lr = models['lr']
     ensemble = models['ensemble']
-
 
     # MLP
     case_mlp = mg.case_magecs(mlp, x_validation_p, model_name='mlp')
@@ -41,7 +40,7 @@ def run(diabs_path='../data/diabetes.csv'):
     magecs_en = mg.normalize_magecs(case_en, features=None, model_name='ensemble')
     magecs_en = magecs_en.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
 
-    features = ['BloodPressure', 'BMI', 'Glucose', 'Insulin', 'SkinThickness']
+    features =  pu.get_from_configs('FEATURES')
 
     joined = mg.magec_models(magecs_mlp, 
                          magecs_rf, 
@@ -53,7 +52,7 @@ def run(diabs_path='../data/diabetes.csv'):
 
     models = ('mlp', 'rf', 'lr')
 
-    magec_totals = avg_magecs(joined)
+    magec_totals = mg.avg_magecs(joined)
 
     print(magec_totals)
 
