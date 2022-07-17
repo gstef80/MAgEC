@@ -1,4 +1,4 @@
-CONFIFGS:
+CONFIGS:
   DIABS_PATH: '../data/diabetes.csv'
   EXCLUDE_COLS: ['Outcome', 'Pregnancies']
   FEATURES: ['BloodPressure', 'BMI', 'Glucose', 'Insulin', 'SkinThickness']
