@@ -1,8 +1,7 @@
 from . import runner
-from runner import run
 
 def main():
-    run()
+    runner.run()
 
 
 if __name__ == '__main__':
