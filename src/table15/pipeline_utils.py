@@ -8,6 +8,7 @@ def yaml_parser(yaml_path):
 
 
 def get_from_configs(configs: Dict, key: str, param_type: str=None):
+    key = key.upper()
     if param_type == 'hyperparams':
         for k in configs:
                 if k == key:

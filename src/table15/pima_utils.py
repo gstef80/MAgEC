@@ -11,8 +11,8 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
-import magec_utils as mg
-from . import pipeline_utils as pu
+from . import magec_utils as mg
+from . import pipeline_utils as plutils
 import os
 
 
@@ -24,21 +24,21 @@ def pima_data(configs):
 
     def impute(df):
         out = df.copy()
-        exclude_cols = pu.get_from_configs(configs, 'EXCLUDE_COLS')
+        exclude_cols = plutils.get_from_configs(configs, 'EXCLUDE_COLS')
         cols = list(set(df.columns) - set(exclude_cols))
         out[cols] = out[cols].replace(0, np.NaN)
         out[cols] = out[cols].fillna(out[cols].mean())
         return out
 
-    filename = pu.get_from_configs(configs, 'DIABS_PATH')
+    filename = plutils.get_from_configs(configs, 'DIABS_PATH')
     pima = pd.read_csv(filename)
 
-    random_seed = pu.get_from_configs(configs, 'RANDOM_SEED', param_type='hyperparams')
+    random_seed = plutils.get_from_configs(configs, 'RANDOM_SEED', param_type='hyperparams')
     if random_seed is not None:
         np.random.seed(random_seed)
     x = pima.iloc[:, 0:-1]
     Y = pima.iloc[:, -1]
-    test_size = pu.get_from_configs(configs, 'TEST_SIZE', param_type='hyperparams')
+    test_size = plutils.get_from_configs(configs, 'TEST_SIZE', param_type='hyperparams')
 
     x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=test_size, random_state=random_seed)
 
@@ -80,44 +80,56 @@ def pima_data(configs):
     return pima, x_train, x_validation, stsc, x_train_p, x_validation_p, y_train_p, y_validation_p
 
 
-def pima_models(x_train_p, y_train_p):
+def create_mlp(x_train_p=None):
+    mlp = Sequential()
+    mlp.add(Dense(60, input_dim=len(x_train_p.columns), activation='relu'))
+    mlp.add(Dropout(0.2))
+    mlp.add(Dense(30, input_dim=60, activation='relu'))
+    mlp.add(Dropout(0.2))
+    mlp.add(Dense(1, activation='sigmoid'))
+    mlp.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    return mlp
+
+
+def pima_models(x_train_p, y_train_p, models):
     """
     3 ML models for PIMA (scaled) data
     :param x_train_p:
     :param Y_train:
     :return:
     """
+    estimators = list()
 
-    def create_mlp():
-        mlp = Sequential()
-        mlp.add(Dense(60, input_dim=len(x_train_p.columns), activation='relu'))
-        mlp.add(Dropout(0.2))
-        mlp.add(Dense(30, input_dim=60, activation='relu'))
-        mlp.add(Dropout(0.2))
-        mlp.add(Dense(1, activation='sigmoid'))
-        mlp.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-        return mlp
+    if 'lr' in models:
+        lr = LogisticRegression(C=1.)
+        lr.fit(x_train_p, y_train_p.values.ravel())
+        estimators.append(('lr', lr))
 
-    mlp = KerasClassifier(build_fn=create_mlp, epochs=100, batch_size=64, verbose=0)
-    mlp._estimator_type = "classifier"
-    mlp.fit(x_train_p, y_train_p)
+    if 'rf' in models:
+        rf = RandomForestClassifier(n_estimators=1000)
+        rf.fit(x_train_p, y_train_p.values.ravel())
+        sigmoidRF = CalibratedClassifierCV(RandomForestClassifier(n_estimators=1000), cv=5, method='sigmoid')
+        sigmoidRF.fit(x_train_p, y_train_p.values.ravel())
+        estimators.append(('rf', sigmoidRF))
 
-    rf = RandomForestClassifier(n_estimators=1000)
-    rf.fit(x_train_p, y_train_p)
-    sigmoidRF = CalibratedClassifierCV(RandomForestClassifier(n_estimators=1000), cv=5, method='sigmoid')
-    sigmoidRF.fit(x_train_p, y_train_p)
-
-    lr = LogisticRegression(C=1.)
-    lr.fit(x_train_p, y_train_p)
-
-    # create a dictionary of our models
-    estimators = [('lr', lr), ('rf', sigmoidRF), ('mlp', mlp)]
+    if 'mlp' in models:
+        params = {'x_train_p': x_train_p}
+        mlp = KerasClassifier(build_fn=create_mlp, x_train_p=x_train_p, epochs=100, batch_size=64, verbose=0)
+        mlp._estimator_type = "classifier"
+        mlp.fit(x_train_p, y_train_p.values.ravel())
+        estimators.append(('mlp', mlp))
+    
+    models_dict = dict()
+    for model_name, clf in estimators:
+        models_dict[model_name] = clf
+    
     # create our voting classifier, inputting our models
     ensemble = VotingClassifier(estimators, voting='soft')
     ensemble._estimator_type = "classifier"
-    ensemble.fit(x_train_p, y_train_p)
-
-    return {'mlp': mlp, 'rf': sigmoidRF, 'lr': lr, 'ensemble': ensemble}
+    ensemble.fit(x_train_p, y_train_p.values.ravel())
+    models_dict['ensemble'] = ensemble
+    
+    return models_dict
 
 
 def plot_stats(dfplot, save=False):

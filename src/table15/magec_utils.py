@@ -124,7 +124,7 @@ def static_prediction(model, target_data, score_preprocessing,
         df = target_data.loc[idx].copy()
     elif label == 'perturb':
         df = target_data.loc[idx].copy()
-        if baseline is None:
+        if baseline in [None, 'None']:
             if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
                 new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
                 new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
@@ -141,7 +141,7 @@ def static_prediction(model, target_data, score_preprocessing,
                 raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
             else:
                 tmp = df.loc[:, var_name]
-                new_val = tmp - tmp * baseline
+                new_val = tmp - tmp * float(baseline)
             df.loc[:, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
@@ -162,7 +162,7 @@ def series_prediction(model, target_data, score_preprocessing,
     elif label == 'perturb':
         df = target_data.copy()
         idx = df.index.get_level_values('timepoint') == timepoint
-        if baseline is None:
+        if baseline in [None, 'None']:
             if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
                 new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
                 new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
@@ -179,7 +179,7 @@ def series_prediction(model, target_data, score_preprocessing,
                 raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
             else:
                 tmp = df.loc[:, var_name]
-                new_val = tmp - tmp * baseline
+                new_val = tmp - tmp * float(baseline)
             df.loc[idx, var_name] = new_val
     else:
         raise ValueError("label must be either 'orig' or' 'perturb")
@@ -314,11 +314,16 @@ def z_perturbation(model, target_data,
             logit_orig = base['logit_orig']
             logit_perturb = perturb['logit_perturb']
             logit_diff = score_comparison(logit_orig, logit_perturb)
+            # probs
+            probs_orig = base['probs_orig']
+            probs_perturb = perturb['probs_perturb']
+            probs_diff = score_comparison(probs_orig, probs_perturb)
             # store
             idx = target_data.index.get_level_values('timepoint') == tt
             prob_deltas_per_cell.loc[idx, var_name] = logit_diff
-            prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = perturb['probs_perturb']
-            prob_deltas_per_cell.loc[idx, 'orig_prob'] = base['probs_orig']
+            prob_deltas_per_cell.loc[idx, '{}_probs'.format(var_name)] = probs_diff
+            prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = probs_perturb
+            prob_deltas_per_cell.loc[idx, 'orig_prob'] = probs_orig
 
     return prob_deltas_per_cell.astype(float)
 
@@ -383,10 +388,15 @@ def normalize_magecs(magecs,
         cols = [c for c in magecs.columns if c.startswith(prefix)]
     else:
         cols = [create_magec_col(m_prefix(magecs, feat, model_name), feat) for feat in features]
+    m_cols = [col for col in cols if col[:-5] != 'probs']
+    m_p_cols = [col for col in cols if col[:-5] == 'probs']
 
     for (idx, row) in out.iterrows():
-        norm = np.linalg.norm(row.loc[cols].values)
-        out.loc[idx, cols] = out.loc[idx, cols] / norm
+        norm_m = np.linalg.norm(row.loc[m_cols].values)
+        out.loc[idx, m_cols] = out.loc[idx, m_cols] / norm_m
+
+        norm_m_p = np.linalg.norm(row.loc[m_p_cols].values)
+        out.loc[idx, m_p_cols] = out.loc[idx, m_p_cols] / norm_m_p
     return out
 
 
@@ -418,9 +428,10 @@ def magec_cols(magec, features):
     orig_prob_col = [col for col in all_cols if col.startswith('orig_prob_')]
     jcols = ['case', 'timepoint']
     m_cols = [col for col in all_cols if '_'.join(col.split('_')[1:]) in features]
+    m_p_cols = [col for col in all_cols if '_'.join(col.split('_')[1:-1]) in features and col.split('_')[-1] == 'probs']
     prob_cols = [col for col in all_cols if col.startswith('perturb_') and
                  col[8:].split('_prob_')[0] in features]
-    cols = jcols + m_cols + prob_cols + orig_prob_col
+    cols = jcols + m_cols + m_p_cols + prob_cols + orig_prob_col
     return jcols, cols
 
 
@@ -435,13 +446,13 @@ def magec_models(*magecs, **kwargs):
     jcols, cols = magec_cols(magecs[0], features)
     magec = magecs[0][cols]
     if Xdata is not None:
-        magec = magec.merge(Xdata.reset_index(), left_on=jcols, right_on=jcols)
+        magec = magec.merge(Xdata.reset_index(), on=jcols)
     if Ydata is not None:
-        magec = magec.merge(Ydata.reset_index(), left_on=jcols, right_on=jcols)
+        magec = magec.merge(Ydata.reset_index(), on=jcols)
     for mgc in magecs[1:]:
         _, cols = magec_cols(mgc, features)
         mgc = mgc[cols]
-        magec = magec.merge(mgc, left_on=jcols, right_on=jcols)
+        magec = magec.merge(mgc, on=jcols)
     return magec
 
 
@@ -475,12 +486,14 @@ def magec_rank(magecs,
                 feat = create_magec_col(model, col)
                 assert feat in row, "feature {} not in magecs".format(feat)
                 magec = row[feat]
+                magec_prob = row[feat+'_probs']
                 # we are using a priority queue for the magec coefficients
                 # heapq is a min-pq, we are reversing the sign so that we can use a max-pq
+                metadata = (col, magec_prob)
                 if len(model_ranks[model]) < rank:
-                    heapq.heappush(model_ranks[model], (-magec, col))
+                    heapq.heappush(model_ranks[model], (-magec, metadata))
                 else:
-                    _ = heapq.heappushpop(model_ranks[model], (-magec, col))
+                    _ = heapq.heappushpop(model_ranks[model], (-magec, metadata))
                     # store magecs (top-N where N=rank) for each key ('case/timepoint')
         ranks[key] = model_ranks
         # create a Pandas dataframe with all magecs for a 'case/timepoint'
@@ -499,25 +512,30 @@ def magec_rank(magecs,
                 columns = ['case', 'timepoint']
         for model in models:
             while v[model]:  # retrieve priority queue's magecs (max-pq with negated (positive) magecs)
-                magec, feat = heapq.heappop(v[model])
-                if magec < 0:  # negative magecs are originally positive magecs and are filtered out
-                    l.append(None)
-                    l.append("not_found")
-                else:
-                    l.append(-magec)  # retrieve original magec sign
-                    l.append(feat)
+                magec, metadata = heapq.heappop(v[model])
+                feat, magec_prob = metadata
+                # Commenting out below code keeps all values, not just "positive" values
+                # if magec < 0:  # negative magecs are originally positive magecs and are filtered out
+                #     l.append(None)
+                #     l.append("not_found")
+                # else:
+                l.append(-magec)  # retrieve original magec sign
+                l.append(feat)
+                l.append(magec_prob)
         out.append(l)
 
     out = pd.DataFrame.from_records(out)
     # create dataframe's columns
     for model in models:
         if rank == 1:
-            columns.append(model + '_magec')
+            columns.append(model + '_mageclogits')
             columns.append(model + '_feat')
+            columns.append(model + '_magecprobs')
         else:
             for r in range(rank, 0, -1):
-                columns.append(model + '_magec_{}'.format(r))
+                columns.append(model + '_mageclogits_{}'.format(r))
                 columns.append(model + '_feat_{}'.format(r))
+                columns.append(model + '_magecprobs_{}'.format(r))
     out.columns = columns
     out['case'] = out['case'].astype(magecs['case'].dtype)
     out['timepoint'] = out['timepoint'].astype(magecs['timepoint'].dtype)
@@ -534,19 +552,13 @@ def magec_rank(magecs,
 
 
 def avg_magecs(magecs, models=('mlp', 'rf', 'lr'), features=('BloodPressure', 'BMI', 'Glucose', 'Insulin', 'SkinThickness'), 
-               outcome='Outcome'):
+               outcome='Outcome', policy='sum'):
     magec_totals = {}
 
     # each row contains all MAgEC coefficients for a 'case/timepoint'
+
     for (idx, row) in magecs.iterrows():
         model_ranks = {}
-        if outcome in row:
-            key = (row['case'], row['timepoint'], row[outcome])
-        else:
-            key = (row['case'], row['timepoint'])
-        for model in models:
-            # initialize all models coefficients (empty list)
-            model_ranks[model] = list()
         for col in features:
             # iterate of all features
             for model in models:
@@ -557,10 +569,11 @@ def avg_magecs(magecs, models=('mlp', 'rf', 'lr'), features=('BloodPressure', 'B
                 if col not in magec_totals:
                     magec_totals[col] = 0
                 magec_totals[col] += magec
-    # Take average score
-    num_rows = len(magecs)
-    for feat in magec_totals:
-        magec_totals[feat] /= num_rows
+    if policy == 'avg':
+        # Take average score
+        num_rows = len(magecs)
+        for feat in magec_totals:
+            magec_totals[feat] /= num_rows
     return magec_totals
 
 
@@ -726,41 +739,6 @@ def magec_consensus(magec_ranks,
 
     cols = list(set(magec_ranks.columns) - {'case', 'timepoint', outcome})
 
-    def name_matching(cols, models):
-        # get all magec column names
-        col_names = dict()
-        for col in cols:
-            prefix = col.split('_')[0]
-            if prefix in models:
-                if prefix in col_names:
-                    col_names[prefix].append(col)
-                else:
-                    col_names[prefix] = [col]
-        # magec/feat column names come in pairs
-        magecs_feats = dict()
-        for model, cols in col_names.items():
-            feat2magic = dict()
-            assert len(cols) % 2 == 0, "magec/feat cols should come in pairs"
-            if len(cols) == 2:
-                if 'feat' in cols[0] and 'magec' in cols[1]:
-                    feat2magic[cols[0]] = cols[1]
-                elif 'feat' in cols[1] and 'magec' in cols[0]:
-                    feat2magic[cols[1]] = cols[0]
-                else:
-                    raise ValueError('magec/feat substring not present in column names')
-            else:
-                # reversed names sorted (e.g. 1_taef_plm)
-                feats = sorted([col[::-1] for col in cols if 'feat' in col])
-                # reversed names sorted (e.g. 1_cegam_plm)
-                magecs = sorted([col[::-1] for col in cols if 'magec' in col])
-                assert len(feats) == len(cols) / 2, "'feat' substring missing in column name"
-                assert len(magecs) == len(cols) / 2, "'magec' substring missing in column name"
-                for i, feat in enumerate(feats):
-                    feat2magic[feat[::-1]] = magecs[i][::-1]
-            # return dictionary with magec feature column names and magec value column name for every model
-            magecs_feats[model] = feat2magic
-        return magecs_feats
-
     magecs_feats = name_matching(cols, models)
 
     out = list()
@@ -802,10 +780,54 @@ def magec_consensus(magec_ranks,
                    'avg_percent_consensus', 'avg_percent_all']
     return out
 
+def name_matching(cols, models):
+    # get all magec column names
+    col_names = dict()
+    for col in sorted(cols):
+        prefix = col.split('_')[0]
+        if prefix in models:
+            if prefix in col_names:
+                col_names[prefix].append(col)
+            else:
+                col_names[prefix] = [col]
+    # magec/feat column names come in pairs
+    magecs_feats = dict()
+    for model, cols in col_names.items():
+        feat2magic = dict()
+        # assert len(cols) % 2 == 0, "magec/feat cols should come in pairs"
+        if len(cols) == 2:
+            if 'feat' in cols[0] and 'magec' in cols[1]:
+                feat2magic[cols[0]] = cols[1]
+            elif 'feat' in cols[1] and 'magec' in cols[0]:
+                feat2magic[cols[1]] = cols[0]
+            else:
+                raise ValueError('magec/feat substring not present in column names')
+        if len(cols) == 3:
+            assert 'probs' in cols[2]
+            if 'feat' in cols[0] and 'logits' in cols[1]:
+                feat2magic[cols[0]] = (cols[1], cols[2])
+            elif 'feat' in cols[1] and 'logits' in cols[0]:
+                feat2magic[cols[1]] = (cols[0], cols[2])
+            else:
+                raise ValueError('magec/feat substring not present in column names')
+        else:
+            # reversed names sorted (e.g. 1_taef_plm)
+            feats = sorted([col[::-1] for col in cols if 'feat' in col])
+            # reversed names sorted (e.g. 1_cegam_plm)
+            mageclogits = sorted([col[::-1] for col in cols if 'mageclogits' in col])
+            magecprobs = sorted([col[::-1] for col in cols if 'magecprobs' in col])
+            # assert len(feats) == len(cols) / 2, "'feat' substring missing in column name"
+            # assert len(magecs) == len(cols) / 2, "'magec' substring missing in column name"
+            for i, feat in enumerate(feats):
+                feat2magic[feat[::-1]] = (mageclogits[i][::-1], magecprobs[i][::-1])
+        # return dictionary with magec feature column names and magec value column name for every model
+        magecs_feats[model] = feat2magic
+    return magecs_feats
+
 
 def magec_winner(magecs_feats,
                  row,
-                 scoring=lambda w: abs(w),
+                 scoring=lambda w: w,
                  use_weights=False,
                  weights={'rf': None, 'mlp': None, 'lr': None},
                  policy='sum'):
@@ -843,11 +865,61 @@ def magec_winner(magecs_feats,
     # get consensus
     for feat, score in scores.items():
         if policy == 'mean':
-            score /= len(consensus[feat])
+            scores[feat] /= len(consensus[feat])
         if winner is None or score > winner[1]:
             winner = (feat, score, len(consensus[feat]), sorted(list(consensus[feat])))
 
     return winner
+
+def magec_scores(magecs_feats,
+                 row,
+                 scoring=lambda w: w,
+                 use_weights=False,
+                 weights={'rf': None, 'mlp': None, 'lr': None},
+                 policy='sum'):
+    """
+    Returns a dictionary of all MAgEC scores computed as a naive sum across models
+    magecs_feats is a dictionary with magec feature column names and magec value column names for every model,
+     e.g
+    {'rf': {'rf_feat_1': 'rf_magec_1', 'rf_feat_2': 'rf_magec_2'},
+     'mlp': {'mlp_feat_1': 'mlp_magec_1', 'mlp_feat_2': 'mlp_magec_2'},
+     'lr': {'lr_feat_1': 'lr_magec_1', 'lr_feat_2': 'lr_magec_2'}}
+    """
+    assert policy in ['sum', 'mean'], "Only 'sum' or 'mean' policy is supported"
+    consensus = {}
+    scores = {'logits': {}, 'probs': {}}
+    if use_weights:
+        assert sorted(weights.keys()) == sorted(magecs_feats.keys())
+    for model, feat_dict in magecs_feats.items():
+        for feat_col, score_cols in feat_dict.items():
+            feat = row[feat_col]
+            if feat == 'not_found':
+                continue
+            logits_score_col = score_cols[0]
+            logits_score = row[logits_score_col]
+            logits_score = scoring(logits_score)
+
+            probs_score_col = score_cols[1]
+            probs_score = row[probs_score_col]
+            probs_score = scoring(probs_score)
+
+            if use_weights:
+                if weights[model] is not None:
+                    logits_score *= weights[model]
+                    probs_score *= weights[model]
+            if feat in scores:
+                scores['logits'][feat] += logits_score
+                scores['probs'][feat] += probs_score
+                consensus[feat].append(model)
+            else:
+                scores['logits'][feat] = logits_score
+                scores['probs'][feat] = probs_score
+                consensus[feat] = [model]
+    if policy == 'mean':
+        for type, col_vals in scores.items():
+            for feat, score in col_vals.items():
+                score /= len(consensus[feat])
+    return scores
 
 
 def enhance_consensus(consensus, rbos, models=('mlp', 'rf', 'lr')):
