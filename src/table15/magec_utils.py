@@ -348,7 +348,7 @@ def create_magec_col(model_name, feature):
 
 
 def case_magecs(model, data, epsilon_value=0, model_name=None,
-                reverse=True, timeseries=False, baseline=None):
+                reverse=True, timeseries=False, baseline=None, binary=None):
     """
     Compute MAgECs for every 'case' (individual row/member table).
     Use all features in data to compute MAgECs.
@@ -359,7 +359,8 @@ def case_magecs(model, data, epsilon_value=0, model_name=None,
                             epsilon_value=epsilon_value,
                             reverse=reverse,
                             timeseries=timeseries,
-                            baseline=baseline)
+                            baseline=baseline,
+                            binary=binary)
     features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
@@ -515,13 +516,15 @@ def magec_rank(magecs,
                 magec, metadata = heapq.heappop(v[model])
                 feat, magec_prob = metadata
                 # Commenting out below code keeps all values, not just "positive" values
-                # if magec < 0:  # negative magecs are originally positive magecs and are filtered out
-                #     l.append(None)
-                #     l.append("not_found")
-                # else:
-                l.append(-magec)  # retrieve original magec sign
-                l.append(feat)
-                l.append(magec_prob)
+                if magec < 0:  # negative magecs are originally positive magecs and are filtered out
+                    l.append(None)
+                    l.append("not_found")
+                    l.append(None)
+                else:
+                # if magec >= 0:
+                    l.append(-magec)  # retrieve original magec sign
+                    l.append(feat)
+                    l.append(magec_prob)
         out.append(l)
 
     out = pd.DataFrame.from_records(out)
@@ -827,7 +830,7 @@ def name_matching(cols, models):
 
 def magec_winner(magecs_feats,
                  row,
-                 scoring=lambda w: w,
+                 scoring=lambda w: abs(w),
                  use_weights=False,
                  weights={'rf': None, 'mlp': None, 'lr': None},
                  policy='sum'):
@@ -873,7 +876,7 @@ def magec_winner(magecs_feats,
 
 def magec_scores(magecs_feats,
                  row,
-                 scoring=lambda w: w,
+                 scoring=lambda w: abs(w),
                  use_weights=False,
                  weights={'rf': None, 'mlp': None, 'lr': None},
                  policy='sum'):
@@ -897,10 +900,17 @@ def magec_scores(magecs_feats,
                 continue
             logits_score_col = score_cols[0]
             logits_score = row[logits_score_col]
+            # print(logits_score)
+            if logits_score in [None, 'nan']:
+                continue
             logits_score = scoring(logits_score)
 
             probs_score_col = score_cols[1]
             probs_score = row[probs_score_col]
+            if probs_score in [None, 'nan']:
+                continue
+            if isinstance(probs_score, str):
+                print(probs_score)
             probs_score = scoring(probs_score)
 
             if use_weights:

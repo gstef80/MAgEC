@@ -1,0 +1,20 @@
+CONFIGS:
+  DIABS_PATH: '../data/diabetes.csv'
+  EXCLUDE_COLS: ['Outcome', 'Pregnancies']
+  POLICY: 'mean'
+  MODELS: ['lr']
+  BASELINES: [0.7, 0.9]
+
+HYPERPARAMS:
+  RANDOM_SEED: 6
+  TEST_SIZE: 0.2
+
+FEATURES:
+  NUMERICAL: ['Age', 'Avg_glucose', 'Bmi']
+  CATEGORICAL: ['Work_type', 'Smoking_status']
+  BINARY: ['Gender', 'Hypertension']
+  TARGET: ['stroke']
+  EXCLUDE_COLS: ['Outcome', 'Pregnancies']
+
+MODELS:
+  USE_ENSEMBLE: true
