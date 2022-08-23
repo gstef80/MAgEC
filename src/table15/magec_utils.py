@@ -516,6 +516,7 @@ def magec_rank(magecs,
                 magec, metadata = heapq.heappop(v[model])
                 feat, magec_prob = metadata
                 # Commenting out below code keeps all values, not just "positive" values
+                # Edit: not doing above comment now
                 if magec < 0:  # negative magecs are originally positive magecs and are filtered out
                     l.append(None)
                     l.append("not_found")
