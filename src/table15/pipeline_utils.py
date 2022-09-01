@@ -16,6 +16,7 @@ from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
 from . import magec_utils as mg
 import os
+import multiprocessing as mp
 
 def yaml_parser(yaml_path):
     with open(yaml_path, 'r') as file:
@@ -153,3 +154,32 @@ def train_models(x_train_p, y_train_p, models, configs):
         models_dict[model_name] = clf
     
     return models_dict
+
+
+def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, baseline=None, features=None):
+    print('Starting single:', key)
+    if model_name == 'lstm':
+        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
+    else:
+        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline)
+    print('Magecs for {} computed...'.format(key))
+    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
+    print('Magecs for {} normalized...'.format(key))
+    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
+    print('Exiting :', key)
+    return magecs
+    
+
+def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_name, baseline=None, features=None):
+    p_name = mp.current_process().name
+    print('Starting multi:', p_name)
+    if model_name == 'lstm':
+        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
+    else:
+        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline)
+    print('Magecs for {} computed...'.format(p_name))
+    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
+    print('Magecs for {} normalized...'.format(p_name))
+    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
+    print('Exiting :', p_name)
+    return_dict[p_name] = magecs

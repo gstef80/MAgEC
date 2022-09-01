@@ -1,18 +1,17 @@
 CONFIGS:
-  DIABS_PATH: '../data/diabetes.csv'
-  EXCLUDE_COLS: ['Outcome', 'Pregnancies']
-  POLICY: 'mean'
-  MODELS: ['lr']
-  BASELINES: [0.7, 0.9]
+  CSV_PATH: '../data/healthcare-dataset-stroke-data.csv'
+  POLICY: 'sum'
+  MODELS: ['lr', 'rf', 'mlp']
+  BASELINES: [null, 0.5, 0.3, 0.1]
 
 HYPERPARAMS:
   RANDOM_SEED: 6
-  TEST_SIZE: 0.2
+  TEST_SIZE: 0.4
 
 FEATURES:
-  NUMERICAL: ['Age', 'Avg_glucose', 'Bmi']
-  CATEGORICAL: ['Work_type', 'Smoking_status']
-  BINARY: ['Gender', 'Hypertension']
+  NUMERICAL: ['age', 'avg_glucose_level', 'bmi']
+  CATEGORICAL: ['work_type', 'smoking_status']
+  BINARY: []
   TARGET: ['stroke']
   EXCLUDE_COLS: ['Outcome', 'Pregnancies']
 

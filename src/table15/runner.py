@@ -11,11 +11,14 @@ import warnings
 
 def run(configs_path='../configs/pima_diabetes.yaml'):
     warnings.filterwarnings('ignore')
+    try:
+        set_start_method("spawn")
+    except RuntimeError:
+        pass
     
     # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
-    # set_start_method("spawn")
 
-    print('This is Version: 0.0.7')
+    print('This is Version: 0.0.8')
 
     configs = plutils.yaml_parser(configs_path)
     baselines = plutils.get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
@@ -33,63 +36,82 @@ def run(configs_path='../configs/pima_diabetes.yaml'):
     if baselines is None:
         baselines = [None]
 
+    has_tf_models = False
+    if 'mlp' in models_dict:
+        has_tf_models = True
+
+    sk_models_dict = models_dict.copy()
+    if has_tf_models:
+        tf_models_list = ['mlp', 'ensemble']
+        tf_models = {tf_model: models_dict[tf_model] for tf_model in tf_models_list}
+        for tf_model in tf_models_list:
+            del sk_models_dict[tf_model]
+
     print('getting magecs...')
-    # with mp.Manager() as manager:
-    #     run_dfs = manager.dict()
-    #     processes = []
-    #     keys = []
-    #     for baseline in baselines:
-    #         print(models_dict)
-    #         for model in models_dict.keys():
-    #             key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
-    #             keys.append(key)
-    #             clf = models_dict[model]
-    #             if model in ['mlp', 'lstm']:
-    #                 clf = clf.model
-    #             print('in1')
-    #             p = mp.Process(name=key, target=run_magecs, 
-    #                 args=(run_dfs, clf, x_validation_p, y_validation_p, model, baseline, features))
-    #             print('in11')
-    #             processes.append(p)
+    with mp.Manager() as manager:
+        run_dfs = manager.dict()
+        processes = []
+        keys = []
+        for baseline in baselines:
+            for model in sk_models_dict.keys():
+                key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
+                keys.append(key)
+                clf = sk_models_dict[model]
+                if model in ['mlp', 'lstm']:
+                    clf = clf.model
+                p = mp.Process(name=key, target=plutils.run_magecs_multip, 
+                    args=(run_dfs, clf, x_validation_p, y_validation_p, model, baseline, features))
+                processes.append(p)
     
-    #     for p in processes:
-    #         p.start()
-    #         print(p)
-    #     for p in processes:
-    #         p.join()
+        for p in processes:
+            p.start()
+        for p in processes:
+            p.join()
 
-    # TODO: fix multiprocessing
-    run_dfs = dict()
-    keys = []
-    for baseline in baselines:
-        for model in models_dict.keys():
-            key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
-            keys.append(key)
-            clf = models_dict[model]
-            if model in ['mlp', 'lstm']:
-                clf = clf.model
-            run_dfs[key] = run_magecs(clf, x_validation_p, y_validation_p, model, key, baseline, features)
+        # TODO: Def this process:
+        baseline_runs = defaultdict(list)
+        for key in keys:
+            baseline = key.split('_')[1]
+            if baseline[0] == 'p':
+                baseline = int(baseline[1:]) / 100
+            else:
+                baseline = int(baseline)
+            yaml_check = baseline
+            if baseline == 0:
+                yaml_check = None
+            assert yaml_check in baselines
+            baseline_runs[baseline].append(run_dfs[key])
 
-    # TODO: Def this process:
-    baseline_runs = defaultdict(list)
-    # keys = sorted(keys)
-    for key in keys:
-        baseline = key.split('_')[1]
-        if baseline[0] == 'p':
-            baseline = int(baseline[1:]) / 100
-        else:
-            baseline = int(baseline)
-        yaml_check = baseline
-        if baseline == 0:
-            yaml_check = None
-        assert yaml_check in baselines
-        baseline_runs[baseline].append(run_dfs[key])
-    
-    # print(run_dfs.keys())
-    # print(baseline_runs.keys())
+    if has_tf_models:
+        # TODO: fix multiprocessing for tensorflow based models
+        tf_run_dfs = dict()
+        keys = []
+        for baseline in baselines:
+            for model in tf_models.keys():
+                key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
+                keys.append(key)
+                clf = models_dict[model]
+                if model in ['mlp', 'lstm']:
+                    clf = clf.model
+                tf_run_dfs[key] = plutils.run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features)
+        # TODO: Def this process:
+        tf_baseline_runs = defaultdict(list)
+        for key in keys:
+            baseline = key.split('_')[1]
+            if baseline[0] == 'p':
+                baseline = int(baseline[1:]) / 100
+            else:
+                baseline = int(baseline)
+            yaml_check = baseline
+            if baseline == 0:
+                yaml_check = None
+            assert yaml_check in baselines
+            tf_baseline_runs[baseline].append(tf_run_dfs[key])
 
-    # print(len(run_dfs['lr_p50']))
-    # print(len(baselines[0,5]))
+        for baseline in baselines:
+            if baseline is None:
+                baseline = 0
+            baseline_runs[baseline].extend(tf_baseline_runs[baseline])
 
     # TODO: Def this process:
     baseline_to_scores_df = {}
@@ -157,34 +179,9 @@ def agg_scores(ranked_df, policy='mean', models=('mlp', 'rf', 'lr')):
     
     return pd.DataFrame.from_records(out)
 
-def run_magecs_multi(return_dict, clf, x_validation_p, y_validation_p, model_name, baseline=None, features=None):
-    print('in2')
-    print(model_name)
-    p_name = mp.current_process().name
-    print('Starting:', p_name)
-    if model_name == 'lstm':
-        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
-    else:
-        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline)
-    print('Magecs for {} computed...'.format(p_name))
-    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
-    print('Magecs for {} normalized...'.format(p_name))
-    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
-    print('Exiting :', p_name)
-    return_dict[p_name] = magecs
 
-def run_magecs(clf, x_validation_p, y_validation_p, model_name, key, baseline=None, features=None):
-    print('Starting:', key)
-    if model_name == 'lstm':
-        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
-    else:
-        magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline)
-    print('Magecs for {} computed...'.format(key))
-    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
-    print('Magecs for {} normalized...'.format(key))
-    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
-    print('Exiting :', key)
-    return magecs
+
+
 
 
 def get_string_repr(df, feats):
