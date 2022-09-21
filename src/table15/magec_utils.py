@@ -23,8 +23,12 @@ import rbo
 from collections import OrderedDict
 
 
-def get_logit(prob, eps=1e-16):
+def get_logit_base2(prob, eps=1e-16):
     return np.log2((prob+eps)/(1-prob+eps))
+
+
+def get_logit_ln(prob, eps=1e-16):
+    return np.log((prob+eps)/(1-prob+eps))
 
 
 def get_column_categories(table, sort=False):
@@ -197,7 +201,7 @@ def series_prediction(model, target_data, score_preprocessing,
 
 
 def z_perturbation(model, target_data,
-                   score_preprocessing=get_logit,
+                   score_preprocessing=get_logit_ln,
                    score_comparison=lambda x_baseline, x: x - x_baseline,
                    sort_categories=True,
                    categories=None,
@@ -360,7 +364,9 @@ def case_magecs(model, data, epsilon_value=0, model_name=None,
                             reverse=reverse,
                             timeseries=timeseries,
                             baseline=baseline,
-                            binary=binary)
+                            binary=binary,
+                            score_preprocessing=get_logit_ln
+                            )
     features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model

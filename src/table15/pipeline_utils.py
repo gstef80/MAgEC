@@ -1,22 +1,23 @@
+import multiprocessing as mp
+import os
+from collections import defaultdict
 from typing import Dict
-import yaml
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import VotingClassifier
+import yaml
+from keras.layers import Dense, Dropout
 from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
 from . import magec_utils as mg
-import os
-import multiprocessing as mp
+
 
 def yaml_parser(yaml_path):
     with open(yaml_path, 'r') as file:
@@ -112,14 +113,13 @@ def create_mlp(x_train_p=None):
     return mlp
 
 
-def train_models(x_train_p, y_train_p, models, configs):
+def train_models(x_train_p, y_train_p, models, use_ensemble=False):
     """
     3 ML models for scaled data
     :param x_train_p:
     :param y_train_p:
     :return:
     """
-    use_ensemble = get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
 
     estimators = list()
 
@@ -156,6 +156,53 @@ def train_models(x_train_p, y_train_p, models, configs):
     return models_dict
 
 
+def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_p, baselines, features, mp_manager=None):
+    is_multi_process = False
+    run_dfs = dict()
+    if mp_manager is not None:
+        is_multi_process = True
+        run_dfs = mp_manager.dict()
+        processes = []
+    
+    keys = []
+    for baseline in baselines:
+        for model in models_dict.keys():
+            key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
+            keys.append(key)
+            clf = models_dict[model]
+            if is_multi_process is False and model in ['mlp', 'lstm', 'ensemble']:
+                    if model in ['mlp', 'lstm']:
+                        clf = clf.model
+                    run_dfs[key] = run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features)
+            elif is_multi_process is True:
+                p = mp.Process(name=key, target=run_magecs_multip, 
+                    args=(run_dfs, clf, x_validation_p, y_validation_p, model, baseline, features))
+                processes.append(p)
+            else:
+                raise ValueError(f'Cannot run {key} through multiprocessing')
+        
+    if is_multi_process:
+        for p in processes:
+            p.start()
+        for p in processes:
+            p.join()
+
+    baseline_runs = defaultdict(list)
+    for key in keys:
+        baseline = key.split('_')[1]
+        if baseline[0] == 'p':
+            baseline = int(baseline[1:]) / 100
+        else:
+            baseline = int(baseline)
+        configs_check = baseline
+        if baseline == 0:
+            configs_check = None
+        assert configs_check in baselines
+        baseline_runs[baseline].append(run_dfs[key])
+    
+    return baseline_runs
+
+
 def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, baseline=None, features=None):
     print('Starting single:', key)
     if model_name == 'lstm':
@@ -183,3 +230,80 @@ def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_na
     magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
     print('Exiting :', p_name)
     return_dict[p_name] = magecs
+
+
+def combine_baseline_runs(main_dict, to_combine_dict, baselines):
+    for baseline in baselines:
+        if baseline is None:
+            baseline = 0
+        main_dict[baseline].extend(to_combine_dict[baseline])
+    return main_dict
+
+
+def score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, policy):
+    baseline_to_scores_df = {}
+    all_joined_dfs = {}
+    for baseline, model_runs in baseline_runs.items():
+        baseline_joined = mg.magec_models(*model_runs,
+                            Xdata=x_validation_p,
+                            Ydata=y_validation_p,
+                            features=features)
+        baseline_ranked_df = mg.magec_rank(baseline_joined, rank=len(features), features=features, models=models)
+        scores_df = agg_scores(baseline_ranked_df, policy=policy, models=models)
+
+        all_joined_dfs[baseline] = baseline_joined
+        baseline_to_scores_df[baseline] = scores_df
+    return baseline_to_scores_df, all_joined_dfs
+
+
+def agg_scores(ranked_df, policy='mean', models=('mlp', 'rf', 'lr')):
+    cols = list(set(ranked_df.columns) - {'case', 'timepoint', 'Outcome'})
+    magecs_feats = mg.name_matching(cols, models)
+    out = list()
+    for (idx, row) in ranked_df.iterrows():
+        scores = mg.magec_scores(magecs_feats, row, use_weights=False, policy=policy)
+        out.append(scores)
+    
+    return pd.DataFrame.from_records(out)
+
+
+def get_string_repr(df, feats):
+    base_strings = []
+    for feat in feats:
+        mean = round(df[feat].mean(), 4)
+        # std = round(df[feat].std(), 4)
+        sem = round(df[feat].sem(), 4)
+        # string_repr = f'{mean} +/- {std}'
+        string_repr = f'{mean} ({sem})'
+        base_strings.append(string_repr)
+    return base_strings
+
+
+def produce_output_df(output, features, baselines):
+    df_out = pd.DataFrame.from_records(output)
+    df_out['feature'] = features
+    # re-order cols
+    cols = ['feature'] + baselines
+    df_out = df_out.rename(columns={'0': 'full'})
+    df_out = df_out[cols]
+    return df_out
+
+def visualize_output(baseline_to_scores_df, baselines, features,  out_type='logits'):
+    output = {}
+    for baseline in baselines:
+        if baseline is None:
+            baseline = 0
+        df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline][out_type])
+    
+        if baseline in [None, 0]:
+            baseline = 1.0
+        output[baseline] = get_string_repr(df_out, features)
+    
+    # TODO: fix baselines upstream  to handle None as 0
+    formatted_baselines = baselines.copy()
+    if None in baselines:
+        idx = formatted_baselines.index(None)
+        formatted_baselines[idx] = 1.0
+
+    df_out =  produce_output_df(output, features, formatted_baselines)
+    return df_out
