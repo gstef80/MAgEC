@@ -1,15 +1,14 @@
 import multiprocessing as mp
-import os
 from collections import defaultdict
+from nis import cat
 from typing import Dict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
 from keras.layers import Dense, Dropout
 from keras.models import Sequential
-from keras.wrappers.scikit_learn import KerasClassifier
+from scikeras.wrappers import KerasClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.linear_model import LogisticRegression
@@ -58,20 +57,26 @@ def generate_data(configs: Dict):
     if random_seed is not None:
         np.random.seed(random_seed)
 
-    features = numerical_features
-    x = df.loc[:, features]
+    non_numerical_features = binary_features # + categorical_features
+    features = numerical_features + non_numerical_features
+
+    x = df.loc[:, numerical_features]
+    x = impute(x)
+    x = pd.concat([x, df[non_numerical_features]], axis=1)
+
     Y = df.loc[:, target_feature]
 
     x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=test_size, random_state=random_seed)
-    
-    x_train = impute(x_train)
-    x_validation = impute(x_validation)
 
     stsc = StandardScaler()
-    xst_train = stsc.fit_transform(x_train)
-    xst_train = pd.DataFrame(xst_train, index=x_train.index, columns=x_train.columns)
-    xst_validation = stsc.transform(x_validation)
-    xst_validation = pd.DataFrame(xst_validation, index=x_validation.index, columns=x_validation.columns)
+
+    xst_train = stsc.fit_transform(x_train[numerical_features])
+    xst_train = pd.DataFrame(xst_train, index=x_train.index, columns=numerical_features)
+    xst_train = pd.concat([xst_train, x_train[non_numerical_features]], axis=1)
+        
+    xst_validation = stsc.transform(x_validation[numerical_features])
+    xst_validation = pd.DataFrame(xst_validation, index=x_validation.index, columns=numerical_features)
+    xst_validation = pd.concat([xst_validation, x_validation[non_numerical_features]], axis=1)
 
     # Format
     x_validation_p = xst_validation.copy()
@@ -171,7 +176,7 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
             keys.append(key)
             clf = models_dict[model]
             if is_multi_process is False and model in ['mlp', 'lstm', 'ensemble']:
-                    if model in ['mlp', 'lstm']:
+                    if model in ['lstm']:
                         clf = clf.model
                     run_dfs[key] = run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features)
             elif is_multi_process is True:
@@ -234,8 +239,6 @@ def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_na
 
 def combine_baseline_runs(main_dict, to_combine_dict, baselines):
     for baseline in baselines:
-        if baseline is None:
-            baseline = 0
         main_dict[baseline].extend(to_combine_dict[baseline])
     return main_dict
 
@@ -288,22 +291,14 @@ def produce_output_df(output, features, baselines):
     df_out = df_out[cols]
     return df_out
 
-def visualize_output(baseline_to_scores_df, baselines, features,  out_type='logits'):
+def visualize_output(baseline_to_scores_df, baselines, features):
     output = {}
     for baseline in baselines:
-        if baseline is None:
-            baseline = 0
-        df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline][out_type])
-    
-        if baseline in [None, 0]:
-            baseline = 1.0
+        df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline])
         output[baseline] = get_string_repr(df_out, features)
     
     # TODO: fix baselines upstream  to handle None as 0
     formatted_baselines = baselines.copy()
-    if None in baselines:
-        idx = formatted_baselines.index(None)
-        formatted_baselines[idx] = 1.0
 
     df_out =  produce_output_df(output, features, formatted_baselines)
     return df_out

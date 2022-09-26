@@ -1,16 +1,10 @@
 import multiprocessing as mp
 import os
-import time
+import sys
 import warnings
-from collections import defaultdict
-from email.mime import base
 from multiprocessing import set_start_method
 
-import pandas as pd
-
-from . import magec_utils as mg
-from . import pima_utils as pm
-from . import pipeline_utils as plutils
+import utils.pipeline_utils as plutils
 
 
 def run(configs_path='./configs/pima_diabetes.yaml'):
@@ -26,7 +20,7 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     
     # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
 
-    print('This is Version: 0.0.11')
+    print('This is Version: 0.0.17')
 
     configs = plutils.yaml_parser(configs_path)
     baselines = plutils.get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
@@ -39,7 +33,7 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     # Train models
     print('Training models ...')
     models_dict = plutils.train_models(x_train_p, y_train_p, models, use_ensemble=use_ensemble)
-    print('Finished training models')
+    print(f'Finished training models {list(models_dict.keys())}')
 
     # Flag for single-process models
     has_tf_models = False
@@ -70,7 +64,14 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
 
     baseline_to_scores_df, all_joined_dfs = plutils.score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, policy)
 
-    df_logits_out = plutils.visualize_output(baseline_to_scores_df, baselines, features, out_type='logits')
-    df_probs_out = plutils.visualize_output(baseline_to_scores_df, baselines, features, out_type='probs')
+    df_logits_out = plutils.visualize_output(baseline_to_scores_df, baselines, features)
 
-    return (df_logits_out, df_probs_out), all_joined_dfs
+    return df_logits_out, all_joined_dfs
+
+
+if __name__ == '__main__':
+    config_path = sys.argv[1]
+    if config_path:
+        run(configs_path=config_path)
+    else:
+        run()
