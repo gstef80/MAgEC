@@ -175,16 +175,14 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
             key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
             keys.append(key)
             clf = models_dict[model]
-            if is_multi_process is False and model in ['mlp', 'lstm', 'ensemble']:
-                    if model in ['lstm']:
-                        clf = clf.model
-                    run_dfs[key] = run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features)
+            if is_multi_process is False:
+                if model in ['lstm']:
+                    clf = clf.model
+                run_dfs[key] = run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features)
             elif is_multi_process is True:
                 p = mp.Process(name=key, target=run_magecs_multip, 
                     args=(run_dfs, clf, x_validation_p, y_validation_p, model, baseline, features))
                 processes.append(p)
-            else:
-                raise ValueError(f'Cannot run {key} through multiprocessing')
         
     if is_multi_process:
         for p in processes:
@@ -209,7 +207,7 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
 
 
 def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, baseline=None, features=None):
-    print('Starting single:', key)
+    print('Starting single-process:', key)
     if model_name == 'lstm':
         magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
     else:
@@ -224,7 +222,7 @@ def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, base
 
 def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_name, baseline=None, features=None):
     p_name = mp.current_process().name
-    print('Starting multi:', p_name)
+    print('Starting multi-process:', p_name)
     if model_name == 'lstm':
         magecs = mg.case_magecs(clf, x_validation_p, model_name=model_name, baseline=baseline, timeseries=True)
     else:
