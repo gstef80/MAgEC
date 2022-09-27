@@ -4,7 +4,7 @@ import sys
 import warnings
 from multiprocessing import set_start_method
 
-import utils.pipeline_utils as plutils
+import table15.utils.pipeline_utils as plutils
 
 
 def run(configs_path='./configs/pima_diabetes.yaml'):
