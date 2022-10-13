@@ -1,6 +1,6 @@
 CONFIGS:
   CSV_PATH: '../data/healthcare-dataset-stroke-data.csv'
-  POLICY: 'sum'
+  POLICY: 'mean'
   MODELS: ['lr', 'rf', 'mlp']
   BASELINES: [1, 0.5, 0.3, 0.1]
 

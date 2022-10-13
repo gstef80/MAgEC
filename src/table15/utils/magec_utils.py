@@ -125,9 +125,10 @@ def static_prediction(model, target_data, score_preprocessing,
         # perturb to baseline conditions
         df = target_data.loc[idx].copy()
         if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
+            new_val = baseline
             # switch binary values
-            new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
-            new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
+            # new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
+            # new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
         elif type(epsilons[var_name]) is list:
             raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
         else:
@@ -187,12 +188,11 @@ def series_prediction(model, target_data, score_preprocessing,
     return df_vector.loc[df_vector.index.get_level_values('timepoint') == timepoint]
 
 
-def z_perturbation(model, target_data,
+def z_perturbation(model, target_data, features, feature_type,
                    score_preprocessing=get_logit_ln,
                    score_comparison=lambda x_baseline, x: x - x_baseline,
                    sort_categories=True,
                    categories=None,
-                   features=None,
                    binary=None,
                    timepoint_level='timepoint',
                    epsilon_value=0,
@@ -223,21 +223,21 @@ def z_perturbation(model, target_data,
     :return:
     '''
     # assert 'timepoint' and 'case' exist in either index or columns
-    assert 'timepoint' in target_data.index.names, "mising 'timepoint' from index"
-    assert 'case' in target_data.index.names, "mising 'case' from index"
+    assert 'timepoint' in target_data.index.names, "mssing 'timepoint' from index"
+    assert 'case' in target_data.index.names, "missing 'case' from index"
 
     timepoints = list(sorted(target_data.index.get_level_values(timepoint_level).unique()))
     if reverse:
         timepoints = list(reversed(timepoints))
 
-    if features is None:
-        features = target_data.columns.unique()
-    else:
-        features = np.asarray(features)
+    assert len(features) > 0, f"No features here to perturb. Feature type: {feature_type}."
+    features = np.asarray(features)
 
     if binary is None:
-        binary = target_data.apply(lambda x: len(np.unique(x)), ) <= 2
+        binary = target_data[features].apply(lambda x: len(np.unique(x)), ) <= 2
         binary = binary[binary].index.tolist()
+    assert (feature_type == 'binary' and len(binary) > 0) or (feature_type != 'binary' and len(binary) == 0), (
+        "Binary column was found when running perturbations on non-binary feature types.")
 
     epsilons = dict()
     for var_name in features:
@@ -333,7 +333,7 @@ def create_magec_col(model_name, feature):
     return model_name + '_' + feature
 
 
-def case_magecs(model, data, epsilon_value=0, model_name=None,
+def case_magecs(model, data, features, feature_type, epsilon_value=0, model_name=None,
                 reverse=True, timeseries=False, baseline=1.0, binary=None):
     """
     Compute MAgECs for every 'case' (individual row/member table).
@@ -341,7 +341,7 @@ def case_magecs(model, data, epsilon_value=0, model_name=None,
     NOTE 1: we prefix MAgECs with model_name.
     NOTE 2: we postfix non-MAgECs, such as 'perturb_<FEAT>_prob' with model_name.
     """
-    magecs = z_perturbation(model, data,
+    magecs = z_perturbation(model, data, features, feature_type,
                             epsilon_value=epsilon_value,
                             reverse=reverse,
                             timeseries=timeseries,
@@ -349,12 +349,13 @@ def case_magecs(model, data, epsilon_value=0, model_name=None,
                             binary=binary,
                             score_preprocessing=get_logit_ln
                             )
-    features = magecs.columns
+
+    all_features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
     prefix = 'm' if model_name is None else model_name
     postfix = prefix
-    for feat in features:
+    for feat in all_features:
         if feat == 'orig_prob' or (feat[:8] == 'perturb_' and feat[-5:] == '_prob'):
             magecs.rename(columns={feat: feat + '_' + postfix}, inplace=True)
         else:
@@ -377,7 +378,6 @@ def normalize_magecs(magecs,
         cols = [c for c in magecs.columns if c.startswith(prefix)]
     else:
         cols = [create_magec_col(m_prefix(magecs, feat, model_name), feat) for feat in features]
-
     for (idx, row) in out.iterrows():
         norm = np.linalg.norm(row.loc[cols].values)
         out.loc[idx, cols] = out.loc[idx, cols] / norm
@@ -412,10 +412,9 @@ def magec_cols(magec, features):
     orig_prob_col = [col for col in all_cols if col.startswith('orig_prob_')]
     jcols = ['case', 'timepoint']
     m_cols = [col for col in all_cols if '_'.join(col.split('_')[1:]) in features]
-    m_p_cols = [col for col in all_cols if '_'.join(col.split('_')[1:-1]) in features and col.split('_')[-1] == 'probs']
     prob_cols = [col for col in all_cols if col.startswith('perturb_') and
                  col[8:].split('_prob_')[0] in features]
-    cols = jcols + m_cols + m_p_cols + prob_cols + orig_prob_col
+    cols = jcols + m_cols + prob_cols + orig_prob_col
     return jcols, cols
 
 
@@ -495,12 +494,12 @@ def magec_rank(magecs,
         for model in models:
             while v[model]:  # retrieve priority queue's magecs (max-pq with negated (positive) magecs)
                 magec, feat = heapq.heappop(v[model])
-                if magec < 0:  # negative magecs are originally positive magecs and are filtered out
-                    l.append(None)
-                    l.append("not_found")
-                else:
-                    l.append(-magec)  # retrieve original magec sign
-                    l.append(feat)
+                # if magec < 0:  # negative magecs are originally positive magecs and are filtered out
+                #     l.append(None)
+                #     l.append("not_found")
+                # else:
+                l.append(-magec)  # retrieve original magec sign
+                l.append(feat)
         out.append(l)
 
     out = pd.DataFrame.from_records(out)
@@ -820,7 +819,8 @@ def magec_winner(magecs_feats,
             feat = row[feat_col]
             if feat == 'not_found':
                 continue
-            score = scoring(row[score_col])
+            # score = scoring(row[score_col])
+            score = row[score_col]
             if use_weights:
                 if weights[model] is not None:
                     score *= weights[model]
@@ -863,19 +863,23 @@ def magec_scores(magecs_feats,
             feat = row[feat_col]
             if feat == 'not_found':
                 continue
-            logits_score = row[score_col]
-            if logits_score in [None, 'nan']:
+
+            score = row[score_col]
+            # Convert ln(OR) to OR
+            score = np.exp(score)
+
+            if score in [None, 'nan']:
                 continue
-            logits_score = scoring(logits_score)
+            score = scoring(score)
 
             if use_weights:
                 if weights[model] is not None:
-                    logits_score *= weights[model]
+                    score *= weights[model]
             if feat in scores:
-                scores[feat] += logits_score
+                scores[feat] += score
                 consensus[feat].append(model)
             else:
-                scores[feat] = logits_score
+                scores[feat] = score
                 consensus[feat] = [model]
     if policy == 'mean':
         for feat, score in scores.items():

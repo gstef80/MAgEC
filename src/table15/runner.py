@@ -20,15 +20,12 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     
     # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
 
-    print('This is Version: 0.0.17')
+    print('This is Version: 0.0.22')
 
     configs = plutils.yaml_parser(configs_path)
-    baselines = plutils.get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
     models = plutils.get_from_configs(configs, 'MODELS', param_type='CONFIGS')
-    policy = plutils.get_from_configs(configs, 'POLICY', param_type='CONFIGS')
     use_ensemble = plutils.get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
-    skip_multiprocessing = plutils.get_from_configs(configs, 'SKIP_MULTIPROCESSING', param_type='MODELS')
-
+    
     df, features, x_train_p, x_validation_p, y_train_p, y_validation_p = plutils.generate_data(configs)
 
     # Train models
@@ -36,49 +33,21 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     models_dict = plutils.train_models(x_train_p, y_train_p, models, use_ensemble=use_ensemble)
     print(f'Finished training models {list(models_dict.keys())}')
 
-    if skip_multiprocessing is False:
-        # Flag for single-process models
-        if 'mlp' in models_dict:
-            has_tf_models = True
+    df_logits_out_num, all_joined_dfs_num = plutils.generate_table_by_feature_type(
+        configs, x_validation_p, y_validation_p, models_dict, feature_type='numerical')
+    
+    df_logits_out_bin, all_joined_dfs_bin = plutils.generate_table_by_feature_type(
+        configs, x_validation_p, y_validation_p, models_dict, feature_type='binary')
 
-        mp_models_dict = models_dict.copy()
-        if has_tf_models:
-            tf_models_list = ['mlp']
-            if use_ensemble is True:
-                tf_models_list.append('ensemble')
-            tf_models_dict = {tf_model: models_dict[tf_model] for tf_model in tf_models_list}
-            for tf_model in tf_models_list:
-                del mp_models_dict[tf_model]
-
-        with mp.Manager() as manager:
-            print('getting magecs for via multiprocessing...')
-            baseline_runs = plutils.generate_perturbation_predictions(
-                mp_models_dict, x_validation_p, y_validation_p, baselines, features, mp_manager=manager)
-            print('Done multiprocessing')
-        
-        if has_tf_models:
-            print('getting magecs for TF model with single-processing ...')
-            tf_baseline_runs = plutils.generate_perturbation_predictions(
-                tf_models_dict, x_validation_p, y_validation_p, baselines, features, mp_manager=None)
-
-            baseline_runs = plutils.combine_baseline_runs(baseline_runs, tf_baseline_runs, baselines)
-
-    else:
-        print('getting magecs for all models with single-processing ...')
-        baseline_runs = plutils.generate_perturbation_predictions(
-            models_dict, x_validation_p, y_validation_p, baselines, features, mp_manager=None)
-
-
-    baseline_to_scores_df, all_joined_dfs = plutils.score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, policy)
-
-    df_logits_out = plutils.visualize_output(baseline_to_scores_df, baselines, features)
-
-    return df_logits_out, all_joined_dfs
+    return [df_logits_out_num, df_logits_out_bin], [all_joined_dfs_num, all_joined_dfs_bin]
 
 
 if __name__ == '__main__':
-    config_path = sys.argv[1]
+    # config_path = sys.argv[1]
+    config_path = '/Users/ag46548/tmp/t15_configs/t15_stroke.yaml'
     if config_path:
-        run(configs_path=config_path)
+        df_logits_out, all_joined_dfs = run(configs_path=config_path)
     else:
-        run()
+        df_logits_out, all_joined_dfs = run()
+
+    print('Done!')
