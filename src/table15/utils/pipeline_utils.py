@@ -5,6 +5,7 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
+import shap
 import yaml
 from keras.layers import Dense, Dropout
 from keras.models import Sequential
@@ -15,7 +16,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from utils import magec_utils as mg
+from . import magec_utils as mg
 
 
 def yaml_parser(yaml_path):
@@ -114,7 +115,7 @@ def generate_data(configs: Dict):
     return df, features, x_train_p, x_validation_p, y_train_p, y_validation_p
 
 
-def create_mlp(x_train_p=None):
+def create_mlp(x_train_p):
     mlp = Sequential()
     mlp.add(Dense(60, input_dim=len(x_train_p.columns), activation='relu'))
     mlp.add(Dropout(0.2))
@@ -125,7 +126,7 @@ def create_mlp(x_train_p=None):
     return mlp
 
 
-def train_models(x_train_p, y_train_p, models, use_ensemble=False):
+def train_models(x_train_p, y_train_p, x_test_p, models, use_ensemble=False):
     """
     3 ML models for scaled data
     :param x_train_p:
@@ -134,38 +135,54 @@ def train_models(x_train_p, y_train_p, models, use_ensemble=False):
     """
 
     estimators = list()
+    model_feat_imp_dict = defaultdict(dict)
+    features = x_train_p.columns
 
     if 'lr' in models:
         lr = LogisticRegression(C=1.)
-        lr.fit(x_train_p, y_train_p.values.ravel())
+        lr.fit(x_train_p, y_train_p)
         estimators.append(('lr', lr))
+        model_feat_imp_dict['lr'] = dict(zip(features, lr.coef_.ravel()))
 
     if 'rf' in models:
         rf = RandomForestClassifier(n_estimators=1000)
-        rf.fit(x_train_p, y_train_p.values.ravel())
+        rf.fit(x_train_p, y_train_p)
         sigmoidRF = CalibratedClassifierCV(RandomForestClassifier(n_estimators=1000), cv=5, method='sigmoid')
-        sigmoidRF.fit(x_train_p, y_train_p.values.ravel())
+        sigmoidRF.fit(x_train_p, y_train_p.values)
         estimators.append(('rf', sigmoidRF))
+        model_feat_imp_dict['rf'] = dict(zip(features, rf.feature_importances_))
 
     if 'mlp' in models:
-        params = {'x_train_p': x_train_p}
-        mlp = KerasClassifier(build_fn=create_mlp, x_train_p=x_train_p, epochs=100, batch_size=64, verbose=0)
+        # mlp = KerasClassifier(build_fn=create_mlp, x_train_p=x_train_p, epochs=100, batch_size=64, verbose=0)
+        mlp = create_mlp(x_train_p)
         mlp._estimator_type = "classifier"
-        mlp.fit(x_train_p, y_train_p.values.ravel())
+        mlp.fit(x_train_p, y_train_p, epochs=100, batch_size=64, verbose=0)
+        model_feat_imp_dict['mlp'] = dict(zip(features, get_shap_values(mlp, x_train_p, x_test_p).ravel()))
         estimators.append(('mlp', mlp))
+        print(model_feat_imp_dict['mlp'])
     
+    # Seems to be an issue using KerasClassifier (for ensemble) with a pretrained model when calling predict downstream
     if use_ensemble:
         # create our voting classifier, inputting our models
         ensemble = VotingClassifier(estimators, voting='soft')
         ensemble._estimator_type = "classifier"
-        ensemble.fit(x_train_p, y_train_p.values.ravel())
+        ensemble.fit(x_train_p, y_train_p)
         estimators.append(('ensemble', ensemble))
     
     models_dict = dict()
     for model_name, clf in estimators:
         models_dict[model_name] = clf
     
-    return models_dict
+    return models_dict, model_feat_imp_dict
+
+def get_shap_values(model, x_train, x_test):
+    background = x_train.to_numpy()#[np.random.choice(x_train.shape[0], 100, replace=False)]
+    explainer = shap.DeepExplainer(model, background)
+    shap_values = explainer.shap_values(x_test.to_numpy())
+    shap_means = np.mean(shap_values, axis=1)
+    l2_norm = np.linalg.norm(shap_means)
+    normalized_shap_means = shap_means / l2_norm
+    return normalized_shap_means
 
 
 def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, mp_manager=None):
@@ -203,10 +220,10 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
 
 def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, baseline, features, feature_type):
     print('Starting single-process:', key)
+    is_timeseries = False
     if model_name == 'lstm':
-        magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline, timeseries=True)
-    else:
-        magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline)
+        is_timeseries = True
+    magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline, timeseries=is_timeseries)
     print('Magecs for {} computed...'.format(key))
     magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
     print('Magecs for {} normalized...'.format(key))
@@ -218,10 +235,10 @@ def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, base
 def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_name, baseline, features, feature_type):
     p_name = mp.current_process().name
     print('Starting multi-process:', p_name)
+    is_timeseries = False
     if model_name == 'lstm':
-        magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline, timeseries=True)
-    else:
-        magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline)
+        is_timeseries = True
+    magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, model_name=model_name, baseline=baseline, timeseries=is_timeseries)
     print('Magecs for {} computed...'.format(p_name))
     magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
     print('Magecs for {} normalized...'.format(p_name))
@@ -236,7 +253,7 @@ def combine_baseline_runs(main_dict, to_combine_dict, baselines):
     return main_dict
 
 
-def score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, policy):
+def score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, model_feat_imp_dict, policy):
     baseline_to_scores_df = {}
     all_joined_dfs = {}
     for baseline, model_runs in baseline_runs.items():
@@ -245,19 +262,19 @@ def score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, fea
                             Ydata=y_validation_p,
                             features=features)
         baseline_ranked_df = mg.magec_rank(baseline_joined, rank=len(features), features=features, models=models)
-        scores_df = agg_scores(baseline_ranked_df, policy=policy, models=models)
+        scores_df = agg_scores(baseline_ranked_df, model_feat_imp_dict, policy=policy, models=models)
 
         all_joined_dfs[baseline] = baseline_joined
         baseline_to_scores_df[baseline] = scores_df
     return baseline_to_scores_df, all_joined_dfs
 
 
-def agg_scores(ranked_df, policy='mean', models=('mlp', 'rf', 'lr')):
+def agg_scores(ranked_df, model_feat_imp_dict, policy='mean', models=('mlp', 'rf', 'lr')):
     cols = list(set(ranked_df.columns) - {'case', 'timepoint', 'Outcome'})
     magecs_feats = mg.name_matching(cols, models)
     out = list()
     for (idx, row) in ranked_df.iterrows():
-        scores = mg.magec_scores(magecs_feats, row, use_weights=False, policy=policy)
+        scores = mg.magec_scores(magecs_feats, row, model_feat_imp_dict, use_weights=False, policy=policy)
         out.append(scores)
     
     return pd.DataFrame.from_records(out)
@@ -310,7 +327,8 @@ def store_run_dfs_by_baseline(run_dfs, keys):
     return baseline_runs
 
 
-def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, models_dict, feature_type='numerical'):
+def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict,
+                                   feature_type='numerical'):
     print(f'Generating Table1.5 for {feature_type} features')
 
     models = get_from_configs(configs, 'MODELS', param_type='CONFIGS')
@@ -339,7 +357,7 @@ def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, mode
         baseline_runs = generate_perturbation_predictions(
             models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, mp_manager=None)
 
-    baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, policy)
+    baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, model_feat_imp_dict, policy)
 
     df_logits_out = visualize_output(baseline_to_scores_df, baselines, features)
 

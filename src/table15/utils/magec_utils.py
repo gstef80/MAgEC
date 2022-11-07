@@ -237,7 +237,7 @@ def z_perturbation(model, target_data, features, feature_type,
         binary = target_data[features].apply(lambda x: len(np.unique(x)), ) <= 2
         binary = binary[binary].index.tolist()
     assert (feature_type == 'binary' and len(binary) > 0) or (feature_type != 'binary' and len(binary) == 0), (
-        "Binary column was found when running perturbations on non-binary feature types.")
+        f"Mismatch between binary feature_type = {feature_type} and len(binary) = {len(binary)}")
 
     epsilons = dict()
     for var_name in features:
@@ -307,6 +307,7 @@ def z_perturbation(model, target_data, features, feature_type,
             logit_diff = score_comparison(logit_orig, logit_perturb)
             # store
             idx = target_data.index.get_level_values('timepoint') == tt
+            # prob_deltas_per_cell.at[idx, var_name] = logit_diff
             prob_deltas_per_cell.loc[idx, var_name] = logit_diff
             prob_deltas_per_cell.loc[idx, 'perturb_{}_prob'.format(var_name)] = perturb['probs_perturb']
             prob_deltas_per_cell.loc[idx, 'orig_prob'] = base['probs_orig']
@@ -841,6 +842,7 @@ def magec_winner(magecs_feats,
 
 def magec_scores(magecs_feats,
                  row,
+                 model_feat_imp_dict,
                  scoring=lambda w: abs(w),
                  use_weights=False,
                  weights={'rf': None, 'mlp': None, 'lr': None},
@@ -865,6 +867,12 @@ def magec_scores(magecs_feats,
                 continue
 
             score = row[score_col]
+            
+            # Modify score with model feature importance weight
+            # model_name = model.split("_")[0]
+            feat_imp_weight = model_feat_imp_dict[model][feat]
+            score *= feat_imp_weight
+            
             # Convert ln(OR) to OR
             score = np.exp(score)
 

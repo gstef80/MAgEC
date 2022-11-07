@@ -4,7 +4,7 @@ import sys
 import warnings
 from multiprocessing import set_start_method
 
-import table15.utils.pipeline_utils as plutils
+import utils.pipeline_utils as plutils
 
 
 def run(configs_path='./configs/pima_diabetes.yaml'):
@@ -30,15 +30,16 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
 
     # Train models
     print('Training models ...')
-    models_dict = plutils.train_models(x_train_p, y_train_p, models, use_ensemble=use_ensemble)
+    models_dict, model_feat_imp_dict = plutils.train_models(x_train_p, y_train_p, x_validation_p, models, use_ensemble=use_ensemble)
     print(f'Finished training models {list(models_dict.keys())}')
 
     df_logits_out_num, all_joined_dfs_num = plutils.generate_table_by_feature_type(
-        configs, x_validation_p, y_validation_p, models_dict, feature_type='numerical')
+        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, feature_type='numerical')
     
     df_logits_out_bin, all_joined_dfs_bin = plutils.generate_table_by_feature_type(
-        configs, x_validation_p, y_validation_p, models_dict, feature_type='binary')
-
+        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, feature_type='binary')
+    print(df_logits_out_num.head(20))
+    print(df_logits_out_bin.head(20))
     return [df_logits_out_num, df_logits_out_bin], [all_joined_dfs_num, all_joined_dfs_bin]
 
 
