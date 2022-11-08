@@ -26,7 +26,7 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     models = plutils.get_from_configs(configs, 'MODELS', param_type='CONFIGS')
     use_ensemble = plutils.get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
     
-    df, features, x_train_p, x_validation_p, y_train_p, y_validation_p = plutils.generate_data(configs)
+    df, features, x_train_p, x_validation_p, y_train_p, y_validation_p, set_feature_values = plutils.generate_data(configs)
 
     # Train models
     print('Training models ...')
@@ -34,18 +34,21 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     print(f'Finished training models {list(models_dict.keys())}')
 
     df_logits_out_num, all_joined_dfs_num = plutils.generate_table_by_feature_type(
-        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, feature_type='numerical')
+        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, set_feature_values, feature_type='numerical')
     
     df_logits_out_bin, all_joined_dfs_bin = plutils.generate_table_by_feature_type(
-        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, feature_type='binary')
-    print(df_logits_out_num.head(20))
-    print(df_logits_out_bin.head(20))
+        configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, set_feature_values, feature_type='binary')
+    if df_logits_out_num is not None:
+        print(df_logits_out_num.head(20))
+    if df_logits_out_bin is not None:
+        print(df_logits_out_bin.head(20))
     return [df_logits_out_num, df_logits_out_bin], [all_joined_dfs_num, all_joined_dfs_bin]
 
 
 if __name__ == '__main__':
     # config_path = sys.argv[1]
     config_path = '/Users/ag46548/tmp/t15_configs/t15_stroke.yaml'
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pima_diabetes.yaml"
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)
     else:

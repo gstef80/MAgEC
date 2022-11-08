@@ -11,9 +11,11 @@ HYPERPARAMS:
 FEATURES:
   NUMERICAL: ['age', 'avg_glucose_level', 'bmi']
   CATEGORICAL: ['work_type', 'smoking_status']
-  BINARY: []
+  BINARY: ['heart_disease']
   TARGET: ['stroke']
-  EXCLUDE_COLS: ['Outcome', 'Pregnancies']
+  SET_FEATURE_VALUES:
+    'avg_glucose_level': 95
+    'bmi': 20
 
 MODELS:
   USE_ENSEMBLE: true

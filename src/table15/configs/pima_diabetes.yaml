@@ -1,5 +1,5 @@
 CONFIGS:
-  CSV_PATH: '../data/diabetes.csv'
+  CSV_PATH: '/Users/ag46548/dev/github/KaleRP/table15/src/data/diabetes.csv'
   POLICY: 'mean'
   MODELS: ['lr', 'rf', 'mlp']
   BASELINES: [1, 0.5, 0.3, 0.1]
@@ -13,8 +13,10 @@ FEATURES:
   CATEGORICAL: []
   BINARY: []
   TARGET: ['Outcome']
-  EXCLUDE_COLS: ['Outcome', 'Pregnancies']
+  SET_FEATURE_VALUES:
+    Insulin: 45
+    bmi: 20
 
 MODELS:
-  USE_ENSEMBLE: true
+  USE_ENSEMBLE: false
   SKIP_MULTIPROCESSING: false
