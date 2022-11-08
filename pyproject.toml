@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "table15"
-version = "1.0.0"
+version = "0.0.1"
 description = "TBD"
 readme = "README.md"
-authors = [{ name = "Rajas Kale", email = "rajas.kale@anthem.com" }]
+authors = [{ name="Rajas Kale", email="rajas.kale@carelon.com" }]
 license = { file = "LICENSE" }
 classifiers = [
     "License :: OSI Approved :: MIT License",
@@ -16,6 +16,15 @@ classifiers = [
 ]
 keywords = ["TBD"]
 requires-python = ">=3.7"
+dependencies = [
+    "pandas >= 0.25",
+    "scikit-learn >= 1.1.2",
+    "keras >= 2.10.0",
+    "scikeras >= 0.9.0",
+    "numpy >= 1.23.3",
+    "shap >= 0.41.0",
+    "PyYAML >= 6.0"
+]
 
 [project.urls]
 Homepage = "https://https://github.com/KaleRP/table15"

@@ -1,6 +1,5 @@
 import multiprocessing as mp
 from collections import defaultdict
-from nis import cat
 from typing import Dict
 
 import numpy as np
