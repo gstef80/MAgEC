@@ -36,6 +36,7 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     
     df_logits_out_bin, all_joined_dfs_bin = plutils.generate_table_by_feature_type(
         configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, set_feature_values, feature_type='binary')
+    
     if df_logits_out_num is not None:
         print(df_logits_out_num.head(20))
     if df_logits_out_bin is not None:
@@ -45,8 +46,9 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
 
 if __name__ == '__main__':
     # config_path = sys.argv[1]
-    config_path = '/Users/ag46548/tmp/t15_configs/t15_stroke.yaml'
+    # config_path = '/Users/ag46548/tmp/t15_configs/t15_stroke.yaml'
     # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pima_diabetes.yaml"
+    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/synth_data_configs.yaml"
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)
     else:

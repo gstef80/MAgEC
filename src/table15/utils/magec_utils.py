@@ -457,8 +457,8 @@ def magec_rank(magecs,
     """
     Compute top-magecs (ranked) for each model for each 'case/timepoint' (individual row in tabular data).
     Input is a list of one or more conputed magecs given a model.
-    Output is a Pandas dataframe with computed magecs, filtering out positive magecs.
-    Positive magecs indicate counter-productive interventions.
+    Output is a Pandas dataframe with computed magecs.
+    Note: Positive magecs indicate counter-productive interventions.
     """
     ranks = {}
 
@@ -516,8 +516,8 @@ def magec_rank(magecs,
     # create dataframe's columns
     for model in models:
         if rank == 1:
-            columns.append(model + '_magec')
-            columns.append(model + '_feat')
+            columns.append(model + '_magec_1')
+            columns.append(model + '_feat_1')
         else:
             for r in range(rank, 0, -1):
                 columns.append(model + '_magec_{}'.format(r))
@@ -590,7 +590,8 @@ def magec_scores(magecs_feats,
                  scoring=lambda w: abs(w),
                  use_weights=False,
                  weights={'rf': None, 'mlp': None, 'lr': None},
-                 policy='sum'):
+                 policy='sum',
+                 num_models_rank=None):
     """
     Returns a dictionary of all MAgEC scores computed as a naive sum across models
     magecs_feats is a dictionary with magec feature column names and magec value column names for every model,
@@ -600,6 +601,9 @@ def magec_scores(magecs_feats,
      'lr': {'lr_feat_1': 'lr_magec_1', 'lr_feat_2': 'lr_magec_2'}}
     """
     assert policy in ['sum', 'mean'], "Only 'sum' or 'mean' policy is supported"
+    if num_models_rank is None:
+        # sum all models per feature
+        num_models_rank = len(magecs_feats)
     consensus = {}
     scores = {}
     if use_weights:
@@ -628,12 +632,15 @@ def magec_scores(magecs_feats,
                 if weights[model] is not None:
                     score *= weights[model]
             if feat in scores:
-                scores[feat] += score
+                scores[feat].append(score)
                 consensus[feat].append(model)
             else:
-                scores[feat] = score
+                scores[feat] = [score]
                 consensus[feat] = [model]
+    for feat in scores.keys():
+        # sum the top N (equal to num_models_rank)
+        scores[feat] = sum(sorted(scores[feat], reverse=True)[:num_models_rank])
     if policy == 'mean':
         for feat, score in scores.items():
-            scores[feat] = score / len(consensus[feat])
+            scores[feat] = score / len(consensus[feat][:num_models_rank])
     return scores

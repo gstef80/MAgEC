@@ -11,9 +11,8 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import Dropout
 from keras.wrappers.scikit_learn import KerasClassifier
-from . import magec_utils as mg
-from . import pipeline_utils as plutils
-import os
+from table15.utils import magec_utils as mg
+from table15.utils import pipeline_utils as plutils
 
 
 def pima_data(configs):

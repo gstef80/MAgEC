@@ -1,0 +1,29 @@
+CONFIGS:
+  CSV_PATH: '/Users/ag46548/tmp/data/synth_data/all_predicted_outcomes.csv'
+  POLICY: 'mean'
+  MODELS: ['lr', 'rf', 'mlp']
+  # MODELS: ['lr', 'rf', 'mlp']
+  BASELINES: [1, 0.5, 0.3, 0.1]
+  N_SAMPLES: 100000
+
+HYPERPARAMS:
+  RANDOM_SEED: 7
+  TEST_SIZE: 0.6
+
+FEATURES:
+  # NUMERICAL: ['age']
+  NUMERICAL: ['age', 'diastolic_lab', 'egfr_lab', 'creatinine_lab', 'potassium_lab', 'urea_nitrogen_lab', 'urea_creatinine_ratio_lab', 'sodium_lab', 'chloride_lab', 'carbon_dioxide_lab', 'calcium_lab', 'phosphorus_lab', 'total_pop', 'p_female', 'median_age', 'p_white',]
+  # NUMERICAL: ['age', 'diastolic_lab', 'egfr_lab', 'creatinine_lab', 'potassium_lab', 'urea_nitrogen_lab', 'urea_creatinine_ratio_lab', 'sodium_lab', 'chloride_lab', 'carbon_dioxide_lab', 'calcium_lab', 'phosphorus_lab', 'total_pop', 'p_female', 'median_age', 'p_white', 'p_black_or_aframr', 'p_amrind_and_alskntv', 'p_asian', 'p_ntvhwi_and_othrpcfisl', 'p_othr', 'p_multiracial', 'household_count', 'median_income', 'mean_income']
+  CATEGORICAL: []
+  # BINARY: ['paraplegia_and_hemiplegia_charlson']
+  BINARY: ['paraplegia_and_hemiplegia_charlson', 'chronic_pulmonary_disease_charlson', 'renal_disease_charlson', 'solid_tumor_wo_metastasis_quanelix', 'coagulopathy_quanelix', 'paralysis_quanelix', 'cardiac_arrhythmia_quanelix', 'peptic_ulcer_disease_excluding_bleeding_quanelix', 'myocardial_infarction_charlson', 'rheumatoid_arhritis_quanelix', 'pulmonary_circulation_disorder_quanelix', 'aids_hiv_charlson', 'hypothyroidism_quanelix', 'cancer_charlson', 'weight_loss_quanelix', 'liver_disease_quanelix', 'chronic_pulmonary_disease_quanelix', 'alcohol_abuse_quanelix', 'peripheral vascular_disorder_quanelix', 'deficiency_anemia_quanelix', 'hypertension_uncomplicated_quanelix', 'other_neurological_disorder_quanelix', 'dementia_charlson', 'psychoses_quanelix', 'valvular_disease_quanelix', 'cerebrovascular_disease_charlson', 'peripheral_vascular_disease_charlson', 'moderate_or_sever_liver_disease_charlson', 'diabetes_uncomplicated_quanelix', 'peptic_ulcer_disease_charlson', 'mild_liver_disease_charlson', 'drug_abuse_quanelix', 'obesity_quanelix', 'aids_hiv_quanelix', 'connective_tissue_disease_rheumatic_disease_charlson', 'diabetes_wo_complications_charlson', 'congestive_heart_failure_charlson', 'metastatic_carcinoma_charlson', 'depression_quanelix', 'renal_failure_quanelix', 'blood_loss_anemia_quanelix', 'lymphoma_quanelix', 'fluid_and_electrolyte_disorders_quanelix', 'diabetes_w_complications_charlson', 'congestive_heart_failure_quanelix', 'metastatic_cancer_quanelix', 'diabetes_complicated_quanelix']
+  TARGET: ['hypertension_complicated_quanelix']
+  # SET_FEATURE_VALUES:
+  #   Insulin: 45
+  #   bmi: 20
+
+MODELS:
+  USE_ENSEMBLE: false
+  SKIP_MULTIPROCESSING: false
+  NUM_MODELS_RANK: 3
+  
