@@ -1,14 +1,14 @@
 CONFIGS:
   CSV_PATH: '/Users/ag46548/tmp/data/synth_data/all_predicted_outcomes.csv'
   POLICY: 'mean'
-  MODELS: ['lr', 'rf', 'mlp']
+  MODELS: ['lr', 'rf', 'svm', 'mlp']
   # MODELS: ['lr', 'rf', 'mlp']
   BASELINES: [1, 0.5, 0.3, 0.1]
   N_SAMPLES: 100000
 
 HYPERPARAMS:
   RANDOM_SEED: 7
-  TEST_SIZE: 0.6
+  TEST_SIZE: 0.2
 
 FEATURES:
   # NUMERICAL: ['age']

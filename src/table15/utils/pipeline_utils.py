@@ -4,16 +4,7 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
-import shap
 import yaml
-from keras.layers import Dense, Dropout
-from keras.models import Sequential
-from scikeras.wrappers import KerasClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import RandomForestClassifier, VotingClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 # from table15.utils import magec_utils as mg
 from . import magec_utils as mg
@@ -33,173 +24,6 @@ def get_from_configs(configs: Dict, key: str, param_type: str=None):
         return configs['CONFIGS'][key]
     print(f'Warning: could not locate param {key} in configs')
     return None
-
-
-def generate_data(configs: Dict):
-    def impute(df):
-        out = df.copy()
-        cols = df.columns
-        out[cols] = out[cols].replace(0, np.NaN)
-        out[cols] = out[cols].fillna(out[cols].mean())
-        return out
-
-    csv_path = get_from_configs(configs, 'CSV_PATH')
-
-    numerical_features = get_from_configs(configs, 'NUMERICAL', param_type='FEATURES')
-    categorical_features = get_from_configs(configs, 'CATEGORICAL', param_type='FEATURES')
-    binary_features = get_from_configs(configs, 'BINARY', param_type='FEATURES')
-    target_feature = get_from_configs(configs, 'TARGET', param_type='FEATURES')
-    
-    set_feature_values = get_from_configs(configs, 'SET_FEATURE_VALUES', param_type='FEATURES')
-
-    random_seed = get_from_configs(configs, 'RANDOM_SEED', param_type='HYPERPARAMS')
-    n_samples = get_from_configs(configs, 'N_SAMPLES', param_type='CONFIGS')
-    test_size = get_from_configs(configs, 'TEST_SIZE', param_type='HYPERPARAMS')
-
-    if set_feature_values is None:
-        set_feature_values = dict()
-        
-    df = pd.read_csv(csv_path)
-
-    if random_seed is not None:
-        np.random.seed(random_seed)
-        
-    if n_samples is not None:
-        df = df.sample(n=n_samples)
-
-    x_num = df.loc[:, numerical_features]
-    x_num = impute(x_num)
-
-    x_bin = df.loc[:, binary_features]
-
-    x_cat = df.loc[:, categorical_features].fillna('')
-    if not x_cat.empty:
-        x_cat = pd.get_dummies(x_cat)
-
-    non_numerical_features = binary_features + list(x_cat.columns)
-    features = numerical_features + non_numerical_features
-
-    x = pd.concat([x_num, x_bin, x_cat], axis=1)
-
-    Y = df.loc[:, target_feature]
-
-    x_train, x_validation, Y_train, Y_validation = train_test_split(x, Y, test_size=test_size, random_state=random_seed)
-
-    stsc = StandardScaler()
-
-    xst_train = stsc.fit_transform(x_train[numerical_features])
-    xst_train = pd.DataFrame(xst_train, index=x_train.index, columns=numerical_features)
-    xst_train = pd.concat([xst_train, x_train[non_numerical_features]], axis=1)
-        
-    xst_validation = stsc.transform(x_validation[numerical_features])
-    xst_validation = pd.DataFrame(xst_validation, index=x_validation.index, columns=numerical_features)
-    xst_validation = pd.concat([xst_validation, x_validation[non_numerical_features]], axis=1)
-    
-    scaling_df = pd.DataFrame([[None for _ in range(len(numerical_features))]], columns=numerical_features)
-    for feat, val in set_feature_values.items():
-        scaling_df[feat] = val
-    
-    scaled_values = dict(zip(numerical_features, stsc.transform(scaling_df[numerical_features]).ravel()))
-    for feat, val in set_feature_values.items():
-        if feat in numerical_features:
-            set_feature_values[feat] = scaled_values[feat]
-
-    # Format
-    x_validation_p = xst_validation.copy()
-    x_validation_p['timepoint'] = 0
-    x_validation_p['case'] = np.arange(len(x_validation_p))
-    x_validation_p.set_index(['case', 'timepoint'], inplace=True)
-    x_validation_p = x_validation_p.sort_index(axis=1)
-
-    y_validation_p = pd.DataFrame(Y_validation.copy())
-    y_validation_p['timepoint'] = 0
-    y_validation_p['case'] = np.arange(len(x_validation_p))
-    y_validation_p.set_index(['case', 'timepoint'], inplace=True)
-    y_validation_p = y_validation_p.sort_index(axis=1)
-
-    # Format
-    x_train_p = xst_train.copy()
-    x_train_p['timepoint'] = 0
-    x_train_p['case'] = np.arange(len(x_train_p))
-    x_train_p.set_index(['case', 'timepoint'], inplace=True)
-    x_train_p = x_train_p.sort_index(axis=1)
-
-    y_train_p = pd.DataFrame(Y_train.copy())
-    y_train_p['timepoint'] = 0
-    y_train_p['case'] = np.arange(len(y_train_p))
-    y_train_p.set_index(['case', 'timepoint'], inplace=True)
-    y_train_p = y_train_p.sort_index(axis=1)
-
-    return df, features, x_train_p, x_validation_p, y_train_p, y_validation_p, set_feature_values
-
-
-def create_mlp(x_train_p):
-    mlp = Sequential()
-    mlp.add(Dense(60, input_dim=len(x_train_p.columns), activation='relu'))
-    mlp.add(Dropout(0.2))
-    mlp.add(Dense(30, input_dim=60, activation='relu'))
-    mlp.add(Dropout(0.2))
-    mlp.add(Dense(1, activation='sigmoid'))
-    mlp.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-    return mlp
-
-
-def train_models(x_train_p, y_train_p, x_test_p, models, use_ensemble=False):
-    """
-    3 ML models for scaled data
-    :param x_train_p:
-    :param y_train_p:
-    :return:
-    """
-
-    estimators = list()
-    model_feat_imp_dict = defaultdict(dict)
-    features = x_train_p.columns
-
-    if 'lr' in models:
-        lr = LogisticRegression(C=1.)
-        lr.fit(x_train_p, y_train_p)
-        estimators.append(('lr', lr))
-        model_feat_imp_dict['lr'] = dict(zip(features, lr.coef_.ravel()))
-
-    if 'rf' in models:
-        rf = RandomForestClassifier(n_estimators=1000)
-        rf.fit(x_train_p, y_train_p)
-        sigmoidRF = CalibratedClassifierCV(RandomForestClassifier(n_estimators=1000), cv=5, method='sigmoid')
-        sigmoidRF.fit(x_train_p, y_train_p.values)
-        estimators.append(('rf', sigmoidRF))
-        model_feat_imp_dict['rf'] = dict(zip(features, rf.feature_importances_))
-
-    if 'mlp' in models:
-        # mlp = KerasClassifier(build_fn=create_mlp, x_train_p=x_train_p, epochs=100, batch_size=64, verbose=0)
-        mlp = create_mlp(x_train_p)
-        mlp._estimator_type = "classifier"
-        mlp.fit(x_train_p, y_train_p, epochs=100, batch_size=64, verbose=0)
-        model_feat_imp_dict['mlp'] = dict(zip(features, get_shap_values(mlp, x_train_p, x_test_p).ravel()))
-        estimators.append(('mlp', mlp))
-    
-    # Seems to be an issue using KerasClassifier (for ensemble) with a pretrained model when calling predict downstream
-    if use_ensemble:
-        # create our voting classifier, inputting our models
-        ensemble = VotingClassifier(estimators, voting='soft')
-        ensemble._estimator_type = "classifier"
-        ensemble.fit(x_train_p, y_train_p)
-        estimators.append(('ensemble', ensemble))
-    
-    models_dict = dict()
-    for model_name, clf in estimators:
-        models_dict[model_name] = clf
-    
-    return models_dict, model_feat_imp_dict
-
-def get_shap_values(model, x_train, x_test):
-    background = x_train.to_numpy()#[np.random.choice(x_train.shape[0], 100, replace=False)]
-    explainer = shap.DeepExplainer(model, background)
-    shap_values = explainer.shap_values(x_test.to_numpy())
-    shap_means = np.mean(shap_values, axis=1)
-    l2_norm = np.linalg.norm(shap_means)
-    normalized_shap_means = shap_means / l2_norm
-    return normalized_shap_means
 
 
 def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, mp_manager=None):
@@ -310,17 +134,21 @@ def get_string_repr(df, feats):
     return base_strings
 
 
-def produce_output_df(output, features, baselines):
+def produce_output_df(output, features, baselines, validation_stats_dict):
     df_out = pd.DataFrame.from_records(output)
     df_out['feature'] = features
     # re-order cols
     cols = ['feature'] + baselines
-    df_out = df_out.rename(columns={'0': 'full'})
+    # df_out = df_out.rename(columns={'0': 'full'})
     df_out = df_out[cols]
+    
+    # for stat, stats_series in validation_stats_dict.items():
+    #     df_out[stat] = stats_series.values
+    
     return df_out
 
 
-def visualize_output(baseline_to_scores_df, baselines, features):
+def visualize_output(baseline_to_scores_df, baselines, features, validation_stats_dict):
     output = {}
     for baseline in baselines:
         df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline])
@@ -329,7 +157,7 @@ def visualize_output(baseline_to_scores_df, baselines, features):
     # TODO: fix baselines upstream  to handle None as 0
     formatted_baselines = baselines.copy()
 
-    df_out =  produce_output_df(output, features, formatted_baselines)
+    df_out =  produce_output_df(output, features, formatted_baselines, validation_stats_dict)
     return df_out
 
 
@@ -346,7 +174,7 @@ def store_run_dfs_by_baseline(run_dfs, keys):
 
 
 def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, set_feature_values,
-                                   feature_type='numerical'):
+                                   validation_stats_dict, features, feature_type='numerical'):
     print(f'Generating Table1.5 for {feature_type} features')
 
     models = get_from_configs(configs, 'MODELS', param_type='CONFIGS')
@@ -354,22 +182,19 @@ def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, mode
     policy = get_from_configs(configs, 'POLICY', param_type='CONFIGS')
     skip_multiprocessing = get_from_configs(configs, 'SKIP_MULTIPROCESSING', param_type='MODELS')
     num_models_rank = get_from_configs(configs, 'NUM_MODELS_RANK', param_type='MODELS')
-
-    if feature_type == 'numerical':
-        features = get_from_configs(configs, 'NUMERICAL', param_type='FEATURES')
-        baselines = get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
-        if len(features) == 0:
-            return None, None
-    elif feature_type == 'binary':
-        features = get_from_configs(configs, 'BINARY', param_type='FEATURES')
-        baselines = [0, 1]
-        if len(features) == 0:
-            return None, None
-    # elif feature_type == 'categorical':
-    #     features = get_from_configs(configs, 'CATEGORICAL', param_type='FEATURES')
-    #     # baselines = 
-    else:
+    
+    if feature_type not in ["numerical", "binary", "categorical"]:
         raise ValueError('Feature type must be numerical, binary, or categorical')
+    
+    if len(features) == 0:
+        return None, None
+    
+    if feature_type == 'numerical':
+        baselines = get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
+    elif feature_type == 'binary':
+        baselines = [0, 1]
+    elif feature_type == 'categorical':
+        baselines = [1]
 
     if skip_multiprocessing is False:
         baseline_runs = baseline_runs_via_multip(
@@ -383,7 +208,7 @@ def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, mode
     baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, model_feat_imp_dict, 
                                                                       policy, num_models_rank)
 
-    df_logits_out = visualize_output(baseline_to_scores_df, baselines, features)
+    df_logits_out = visualize_output(baseline_to_scores_df, baselines, features, validation_stats_dict)
 
     return df_logits_out, all_joined_dfs
 

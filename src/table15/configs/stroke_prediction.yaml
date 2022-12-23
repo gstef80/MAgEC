@@ -1,7 +1,7 @@
 CONFIGS:
   CSV_PATH: '../data/healthcare-dataset-stroke-data.csv'
   POLICY: 'mean'
-  MODELS: ['lr', 'rf', 'mlp']
+  MODELS: ['lr', 'rf', 'svm', 'mlp']
   BASELINES: [1, 0.5, 0.3, 0.1]
 
 HYPERPARAMS:
@@ -18,7 +18,7 @@ FEATURES:
     'bmi': 20
 
 MODELS:
-  USE_ENSEMBLE: true
+  USE_ENSEMBLE: false
   SKIP_MULTIPROCESSING: false
   NUM_MODELS_RANK: 2
 
