@@ -1,0 +1,35 @@
+CONFIGS:
+  CSV_PATH: '/Users/ag46548/dev/github/KaleRP/table15/src/data/diabetes.csv'
+  # BASELINES: [1, 0.5, 0.3, 0.1]
+
+
+  
+  BASELINES: [1, 0.1]
+
+HYPERPARAMS:
+  RANDOM_SEED: 7
+  TEST_SIZE: 0.2
+
+FEATURES:
+  NUMERICAL: ['BloodPressure', 'BMI', 'Glucose', 'Insulin', 'SkinThickness']
+  CATEGORICAL: []
+  BINARY: []
+  GROUPED:
+    - ["BloodPressure", "BMI", "SkinThickness"]
+    - ["Glucose", "Insulin"]
+  TARGET: ['Outcome']
+  SET_FEATURE_VALUES:
+    Insulin: 45
+    bmi: 20
+
+MODELS:
+  MODEL_CONFIGS_PATHS:
+    - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/linear_model_configs/lr_1.yaml
+    - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/linear_model_configs/lr_2.yaml
+    - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/svm_configs/svm_1.yaml
+    - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/svm_configs/linear_svm_cc_1
+    - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/ensemble_configs/random_forrest_cc_1
+  ENSEMBLE_CONFIGS_PATH: "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/ensemble_configs/voting_classifier_1"
+  SKIP_MULTIPROCESSING: true
+  USE_FEATURE_IMPORTANCE_SCALING: true
+  

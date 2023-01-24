@@ -1,10 +1,11 @@
 import os
 import warnings
 from multiprocessing import set_start_method
+from src.table15.configs import Configs
 
 import utils.pipeline_utils as plutils
-from utils.model_utils import ModelUtils
-from utils.data_utils import DataUtils
+from utils.models_container import ModelsContainer
+from utils.data_tables import DataTables
 
 
 def run(configs_path='./configs/pima_diabetes.yaml'):
@@ -20,48 +21,46 @@ def run(configs_path='./configs/pima_diabetes.yaml'):
     
     # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
 
-    print('This is Version: 0.0.24')
+    print('This is Version: 0.0.26')
 
-    configs = plutils.yaml_parser(configs_path)
-    models = plutils.get_from_configs(configs, 'MODELS', param_type='CONFIGS')
-    use_ensemble = plutils.get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
+    configs = Configs(configs_path)
+    models_configs_paths = configs.get_from_configs('MODEL_CONFIGS_PATHS', param_type='MODELS')
     
-    dutils = DataUtils().generate_data(configs)
+    use_feature_importance_scaling = configs.get_from_configs('USE_FEATURE_IMPORTANCE_SCALING', param_type='MODELS')
+    ensemble_configs_path = configs.get_from_configs('ENSEMBLE_CONFIGS_PATH', param_type='MODELS')
+    
+    data_tables = DataTables() \
+        .generate_data(configs)
 
-    # Train models
-    print('Training models ...')
-    mutils = ModelUtils(dutils.x_train_p, dutils.y_train_p, dutils.x_validation_p)
-    models_dict = mutils.train_models(models)
-    model_feat_imp_dict = mutils.extract_feature_importance_from_models(models_dict)
-    print(f'Finished generating models {list(models_dict.keys())}')
+    # Generate and train models
+    models_container = ModelsContainer() \
+        .populate_data_tables(data_tables.x_train_p, data_tables.y_train_p, data_tables.x_validation_p) \
+        .load_models(models_configs_paths, ensemble_configs_path=ensemble_configs_path) \
+        .train_models() \
+        .store_feature_importance_from_models(use_feature_importance_scaling=use_feature_importance_scaling)
 
-    df_logits_out_num, all_joined_dfs_num = plutils.generate_table_by_feature_type(
-        configs, dutils.x_validation_p, dutils.y_validation_p, models_dict, model_feat_imp_dict, dutils.set_feature_values, dutils.validation_stats_dict, 
-        dutils.numerical_features, feature_type='numerical')
+    df_logits_out_by_feature_types = []
+    all_joined_dfs_by_feature_types = []
+    feature_types = ["numerical", "binary", "categorical", "grouped"]
+    for feature_type in feature_types:
+        df_logits_out, all_joined_dfs = plutils.generate_table_by_feature_type(configs, data_tables, models_container, feature_type=feature_type)
+        df_logits_out_by_feature_types.append(df_logits_out)
+        all_joined_dfs_by_feature_types.append(all_joined_dfs)
     
-    df_logits_out_bin, all_joined_dfs_bin = plutils.generate_table_by_feature_type(
-        configs, dutils.x_validation_p, dutils.y_validation_p, models_dict, model_feat_imp_dict, dutils.set_feature_values, dutils.validation_stats_dict, 
-        dutils.binary_features, feature_type='binary')
-    
-    df_logits_out_cat, all_joined_dfs_cat = plutils.generate_table_by_feature_type(
-        configs, dutils.x_validation_p, dutils.y_validation_p, models_dict, model_feat_imp_dict, dutils.set_feature_values, dutils.validation_stats_dict, 
-        dutils.categorical_features, feature_type='categorical')
-    
-    if df_logits_out_num is not None:
-        print(df_logits_out_num.head(20))
-    if df_logits_out_bin is not None:
-        print(df_logits_out_bin.head(20))
-    if df_logits_out_cat is not None:
-        print(df_logits_out_cat.head(20))
-    return [df_logits_out_num, df_logits_out_bin, df_logits_out_cat], [all_joined_dfs_num, all_joined_dfs_bin, all_joined_dfs_cat]
+    for df in df_logits_out_by_feature_types:
+        if df is not None:
+            print(df.head(20))
+            
+    return df_logits_out_by_feature_types, all_joined_dfs_by_feature_types
 
 
 if __name__ == '__main__':
-    # config_path = sys.argv[1]
-    config_path = '/Users/ag46548/tmp/t15_configs/t15_stroke.yaml'
-    # config_path = '/Users/ag46548/tmp/t15_configs/t15_diabs.yaml'
-    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pima_diabetes.yaml"
-    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/synth_data_configs.yaml"
+    
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/linear.yaml"
+    
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
+    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/synth_data.yaml"
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)
     else:

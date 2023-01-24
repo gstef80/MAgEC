@@ -1,0 +1,8 @@
+MODEL_INFO:
+  NAME: "Voting-Classifier-1"
+  TYPE: "voting_classifier"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    voting: "soft"

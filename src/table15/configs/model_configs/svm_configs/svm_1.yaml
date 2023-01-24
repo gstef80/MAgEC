@@ -1,0 +1,9 @@
+MODEL_INFO:
+  NAME: "Kernel-SVM-Linear-1"
+  TYPE: "kernel_svm"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    kernel: "linear"
+    probability: true

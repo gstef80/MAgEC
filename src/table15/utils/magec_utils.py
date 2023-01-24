@@ -3,330 +3,10 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
+from src.table15.perturbations.group_perturbation import GroupPerturbation
 
+from src.table15.perturbations.z_perturbation import ZPerturbation
 
-def get_logit_base2(prob, eps=1e-16):
-    return np.log2((prob+eps)/(1-prob+eps))
-
-
-def get_logit_ln(prob, eps=1e-16):
-    return np.log((prob+eps)/(1-prob+eps))
-
-
-def get_column_categories(table, sort=False):
-    cats = OrderedDict()
-    for kk,vv in table.dtypes.items():
-        if vv is np.dtype('O'):
-            cats[kk] = table[kk].fillna('').unique().tolist()
-            if sort:
-                cats[kk] = sorted(cats[kk])
-        else:
-            cats[kk] = []
-    return cats
-
-
-def hier_col_name_generator(categories):
-    for cl, vv in categories.items():
-        if len(vv) > 0:
-            for cat in vv:
-                yield '{}-{}'.format(cl, cat) if len(vv) > 0 else vv
-        else:
-            yield cl
-
-
-def predict(model, data):
-    """
-    Model output (predicted) probabilities.
-    Wrapper for predict_proba function in scikit-learn models.
-    When a model does not have a predict_proba use predict interface.
-    """
-    if hasattr(model, 'predict_proba'):
-        probs = model.predict_proba(data)
-        if probs.shape[1] == 2:
-            probs = probs[:, 1].ravel()
-        else:
-            probs = probs.ravel()
-    else:
-        probs = np.array(model.predict(data))
-    return probs
-
-
-def zero_pad(df, length=None):
-    """
-    Given a MAgEC dataframe (indexed with timepoint and case) zero-pad all features/columns
-    """
-    x = list()
-    y = list()
-    z = list()
-
-    # assert 'timepoint' and 'case' exist in either index or columns
-    assert 'timepoint' in df.index.names, "mising 'timepoint' from index"
-    assert 'case' in df.index.names, "mising 'case' from index"
-
-    if length is None:
-        length = len(df.index.get_level_values('timepoint').unique())
-
-    # use all features except for 'label', 'case' and 'timepoint'
-    series_cols = list(set(df.columns) - {'case', 'timepoint', 'label'})
-
-    for idx, fname in df.groupby(level='case', group_keys=False):
-
-        if 'label' in df.columns:
-            y_data = np.array(fname['label'].values[0])
-            y.append(y_data)
-
-        tmp = fname[series_cols].astype(float).values  # get all features as matrix of floats
-        x_data = np.zeros([length, tmp.shape[1]])  # prepare zero pad matrix
-        x_data[:tmp.shape[0], :] = tmp  # zero pad
-        x.append(x_data)
-        # format for pandas dataframe with columns containg time-series
-        series = [[x_data[i, j] for i in range(x_data.shape[0])] for j in range(x_data.shape[1])]
-
-        if 'label' in df.columns:
-            z.append(pd.Series(series + [idx, y_data],
-                               index=series_cols + ['case', 'label']))
-        else:
-            z.append(pd.Series(series + [idx],
-                               index=series_cols + ['case']))
-    x = np.array(x)
-    y = np.array(y)
-    z = pd.DataFrame.from_records(z)
-
-    return x, y, z
-
-
-def slice_series(target_data, tt, reverse=True):
-    if reverse:
-        df = target_data.loc[target_data.index.get_level_values('timepoint') >= tt]
-    else:
-        df = target_data.loc[target_data.index.get_level_values('timepoint') <= tt]
-    return df
-
-
-def static_prediction(model, target_data, set_feature_values, score_preprocessing,
-                      timepoint, var_name, epsilons, label='orig', baseline=1.0):
-    idx = target_data.index.get_level_values('timepoint') == timepoint
-    if label == 'orig':
-        df = target_data.loc[idx].copy()
-    elif label == 'perturb':
-        # perturb to baseline conditions
-        df = target_data.loc[idx].copy()
-        if type(epsilons[var_name]) is list and len(epsilons[var_name]) <= 2:
-            # Binary or Categorical
-            new_val = baseline # Baseline always 1.0 for categorical features and either 1.0 or 0.0 for binary features
-            if "__cat__" in var_name:
-                # Categorical
-                df[var_name] = new_val
-                # Get other similar categories to reassign 0 value
-                cat_name = var_name.split("__cat__")[0]
-                similar_cats = [col for col in df.columns if "__cat__" in col and col.split("__cat__")[0] == cat_name]
-                for sim_cat in similar_cats:
-                    df[sim_cat] = 0.0
-                    
-            else:
-                # Binary
-                df[var_name] = new_val
-                
-        elif type(epsilons[var_name]) is list:
-            raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
-        else:
-            # Numerical
-            if var_name in set_feature_values:
-                set_val = set_feature_values[var_name]
-            else:
-                set_val = 0
-            curr_val = df.loc[:, var_name]
-            pert_dist = curr_val - set_val
-            new_val = curr_val - (pert_dist * float(baseline))
-            df[var_name] = new_val
-    else:
-        raise ValueError("label must be either 'orig' or' 'perturb")
-    probs = predict(model, df)
-    logits = score_preprocessing(probs)
-    df_cols = df.columns
-    df['probs_{}'.format(label)] = probs
-    df['logit_{}'.format(label)] = logits
-    df = df.drop(df_cols, axis=1)
-    return df
-
-
-def series_prediction(model, target_data, set_feature_values, score_preprocessing,
-                      timepoint, reverse, pad, var_name, epsilons,
-                      label='orig', baseline=1.0):
-    if label == 'orig':
-        df = target_data.copy()
-    elif label == 'perturb':
-        df = target_data.copy()
-        idx = df.index.get_level_values('timepoint') == timepoint
-        if baseline in [None, 'None']:
-            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
-                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
-                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
-            elif type(epsilons[var_name]) is list:
-                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
-            else:
-                new_val = epsilons[var_name]
-            df.loc[idx, var_name] = new_val  # perturb to new value
-        else:
-            if type(epsilons[var_name]) is list and len(epsilons[var_name]) == 2:
-                new_val = (df.loc[:, var_name] == epsilons[var_name][0]).astype(int)
-                new_val = new_val.multiply(epsilons[var_name][1]) + (1-new_val).multiply(epsilons[var_name][0])
-            elif type(epsilons[var_name]) is list:
-                raise ValueError('epsilon value can only be a scalar or have 2 values (binary)')
-            else:
-                tmp = df.loc[:, var_name]
-                new_val = tmp - tmp * float(baseline)
-            df.loc[idx, var_name] = new_val
-    else:
-        raise ValueError("label must be either 'orig' or' 'perturb")
-    df = slice_series(df, timepoint, reverse=reverse)
-    x_series, _, df_vector = zero_pad(df, length=pad)
-    df_cols = list(set(df_vector.columns) - {'case'})
-    probs = predict(model, x_series)
-    logits = score_preprocessing(probs)
-    df_vector['probs_{}'.format(label)] = probs
-    df_vector['logit_{}'.format(label)] = logits
-    df_vector['timepoint'] = timepoint
-    df_vector = df_vector.set_index(['case', 'timepoint'])
-    df_vector = df_vector.drop(df_cols, axis=1)
-    return df_vector.loc[df_vector.index.get_level_values('timepoint') == timepoint]
-
-
-def z_perturbation(model, target_data, features, feature_type, set_feature_values,
-                   score_preprocessing=get_logit_ln,
-                   score_comparison=lambda x_orig, x_perturb: x_perturb - x_orig,
-                   sort_categories=True,
-                   categories=None,
-                   binary=None,
-                   timepoint_level='timepoint',
-                   epsilon_value=0,
-                   reverse=True,
-                   timeseries=False,
-                   baseline=1.0):
-    '''
-    Main method for computing a MAgEC. Assumes 'scaled/normalized' features in target data.
-        Supporting 2 types of variables:
-        - numeric / floats
-        - binary / boolean
-        Default score_comparison subtracts perturbed output from original.
-        For a binary classification task, where 1 denotes a "bad" outcome, a good perturbation
-        is expected to result in a negative score_comparison (assuming monotonic score_preprocessing).
-    :param model:
-    :param target_data:
-    :param score_preprocessing:
-    :param score_comparison:
-    :param sort_categories:
-    :param categories:
-    :param features:
-    :param binary:
-    :param timepoint_level:
-    :param epsilon_value:
-    :param reverse:
-    :param timeseries:
-    :param baseline: whether to compute baseline MAgECS, None as default, 0.01 for 1% perturbation
-    :return:
-    '''
-    # assert 'timepoint' and 'case' exist in either index or columns
-    assert 'timepoint' in target_data.index.names, "mssing 'timepoint' from index"
-    assert 'case' in target_data.index.names, "missing 'case' from index"
-
-    timepoints = list(sorted(target_data.index.get_level_values(timepoint_level).unique()))
-    if reverse:
-        timepoints = list(reversed(timepoints))
-
-    assert len(features) > 0, f"No features here to perturb. Feature type: {feature_type}."
-    features = np.asarray(features)
-
-    if binary is None:
-        binary = target_data[features].apply(lambda x: len(np.unique(x)), ) <= 2
-        binary = binary[binary].index.tolist()
-    assert (feature_type in ["binary", "categorical"] and len(binary) > 0) or (feature_type not in ["binary", "categorical"] and len(binary) == 0), (
-        f"Mismatch between binary feature_type = {feature_type} and len(binary) = {len(binary)}")
-
-    epsilons = dict()
-    for var_name in features:
-        if var_name in binary:
-            epsilons[var_name] = target_data[var_name].unique().tolist()
-            # epsilons[var_name] = target_data[var_name].value_counts().idxmax()  # most frequent value
-        else:
-            epsilons[var_name] = epsilon_value
-
-    if categories is None:
-        categories = get_column_categories(target_data[features], sort=sort_categories)
-
-    prob_deltas_per_cell = pd.DataFrame(index=target_data.index,
-                                        columns=pd.Index(hier_col_name_generator(categories),
-                                                         name='features'))
-
-    for tt in timepoints:
-
-        # print("Timepoint {}".format(tt))
-
-        if not timeseries:
-            base = static_prediction(model,
-                                     target_data,
-                                     set_feature_values,
-                                     score_preprocessing,
-                                     tt,
-                                     var_name=None,
-                                     epsilons=None,
-                                     label='orig')
-        else:
-            base = series_prediction(model,
-                                     target_data,
-                                     set_feature_values,
-                                     score_preprocessing,
-                                     tt,
-                                     reverse,
-                                     len(timepoints),
-                                     var_name=None,
-                                     epsilons=None,
-                                     label='orig')
-
-        for var_name in features:
-
-            if not timeseries:
-                # predict for perturbed data
-                perturb = static_prediction(model,
-                                            target_data,
-                                            set_feature_values,
-                                            score_preprocessing,
-                                            tt,
-                                            var_name=var_name,
-                                            epsilons=epsilons,
-                                            label='perturb',
-                                            baseline=baseline)
-            else:
-                # predict for perturbed data
-                perturb = series_prediction(model,
-                                            target_data,
-                                            set_feature_values,
-                                            score_preprocessing,
-                                            tt,
-                                            reverse,
-                                            len(timepoints),
-                                            var_name=var_name,
-                                            epsilons=epsilons,
-                                            label='perturb',
-                                            baseline=baseline)
-            # logits
-            logit_orig = base['logit_orig']
-            logit_perturb = perturb['logit_perturb']
-            logit_diff = score_comparison(logit_orig, logit_perturb)
-            # store
-            if timeseries:
-                idx = target_data.index.get_level_values('timepoint') == tt
-                # prob_deltas_per_cell.at[idx, var_name] = logit_diff
-                prob_deltas_per_cell.loc[idx, var_name] = logit_diff
-                prob_deltas_per_cell.loc[idx, f'perturb_{var_name}_prob'] = perturb['probs_perturb']
-                prob_deltas_per_cell.loc[idx, 'orig_prob'] = base['probs_orig']
-            else:
-                # This avoids a very annoying FutureWarning
-                prob_deltas_per_cell[var_name] = logit_diff
-                prob_deltas_per_cell[f'perturb_{var_name}_prob'] = perturb['probs_perturb']
-                prob_deltas_per_cell['orig_prob'] = base['probs_orig']
-
-    return prob_deltas_per_cell.astype(float)
 
 
 def m_prefix(magecs, feature, model_name=None):
@@ -336,6 +16,8 @@ def m_prefix(magecs, feature, model_name=None):
     prefix = 'm'
     for c in magecs.columns:
         splits = c.split('_')
+        if isinstance(feature, list):
+            feature = "::".join(feature)
         if len(splits) > 1 and feature == '_'.join(splits[1:]):
             prefix = splits[0]
             if model_name is not None:
@@ -381,26 +63,29 @@ def name_matching(cols, models):
 
 
 def create_magec_col(model_name, feature):
+    if isinstance(feature, list):
+        feature = "::".join(feature)
     return model_name + '_' + feature
 
 
-def case_magecs(model, data, features, feature_type, set_feature_values, epsilon_value=0, model_name=None,
-                reverse=True, timeseries=False, baseline=1.0, binary=None):
+def case_magecs(clf, data, perturbation_params, set_feature_values):
     """
     Compute MAgECs for every 'case' (individual row/member table).
     Use all features in data to compute MAgECs.
     NOTE 1: we prefix MAgECs with model_name.
     NOTE 2: we postfix non-MAgECs, such as 'perturb_<FEAT>_prob' with model_name.
     """
-    magecs = z_perturbation(model, data, features, feature_type, set_feature_values,
-                            epsilon_value=epsilon_value,
-                            reverse=reverse,
-                            timeseries=timeseries,
-                            baseline=baseline,
-                            binary=binary,
-                            score_preprocessing=get_logit_ln
-                            )
+    features = perturbation_params["features"]
+    feature_type = perturbation_params["feature_type"]
+    baseline = perturbation_params["baseline"]
+    model_name = clf.name
+    
+    if feature_type == "grouped":
+        perturbation = GroupPerturbation(data, clf, features, feature_type)
+    else:
+        perturbation = ZPerturbation(data, clf, features, feature_type)
 
+    magecs = perturbation.run_perturbation(set_feature_values, baseline=baseline)
     all_features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
@@ -522,12 +207,13 @@ def magec_rank(magecs,
         for model in models:
             while v[model]:  # retrieve priority queue's magecs (max-pq with negated (positive) magecs)
                 neg_magec, feat = heapq.heappop(v[model])
-                # if neg_magec < 0.1:  # negative magecs are originally positive magecs and are filtered out
-                #     l.append(None)
-                #     l.append("not_found")
-                # else:
-                l.append(-neg_magec)  # retrieve original magec sign
-                l.append(feat)
+                # if neg_magec < 0:  # negative magecs are originally positive magecs and are filtered out
+                if neg_magec <= -1:
+                    l.append(None)
+                    l.append("not_found")
+                else:
+                    l.append(-neg_magec)  # retrieve original magec sign
+                    l.append(feat)
         out.append(l)
 
     out = pd.DataFrame.from_records(out)
@@ -560,9 +246,7 @@ def magec_scores(magecs_feats,
                  model_feat_imp_dict,
                  scoring=lambda w: abs(w),
                  use_weights=False,
-                 weights={'rf': None, 'mlp': None, 'lr': None},
-                 policy='sum',
-                 num_models_rank=None):
+                 weights={'rf': None, 'mlp': None, 'lr': None}):
     """
     Returns a dictionary of all MAgEC scores computed as a naive sum across models
     magecs_feats is a dictionary with magec feature column names and magec value column names for every model,
@@ -571,10 +255,6 @@ def magec_scores(magecs_feats,
      'mlp': {'mlp_feat_1': 'mlp_magec_1', 'mlp_feat_2': 'mlp_magec_2'},
      'lr': {'lr_feat_1': 'lr_magec_1', 'lr_feat_2': 'lr_magec_2'}}
     """
-    assert policy in ['sum', 'mean'], "Only 'sum' or 'mean' policy is supported"
-    if num_models_rank is None:
-        # sum all models per feature
-        num_models_rank = len(magecs_feats)
     consensus = {}
     scores = {}
     if use_weights:
@@ -589,11 +269,11 @@ def magec_scores(magecs_feats,
             
             # Modify score with model feature importance weight
             # model_name = model.split("_")[0]
-            feat_imp_weight = model_feat_imp_dict[model][feat]
+            feat_imp_weight = model_feat_imp_dict[model].get(feat, 1.0)
             score *= feat_imp_weight
             
-            # Convert ln(OR) to OR
-            score = np.exp(score)
+            # # Convert ln(OR) to OR
+            # score = np.exp(score)
 
             if score in [None, 'nan']:
                 continue
@@ -610,8 +290,8 @@ def magec_scores(magecs_feats,
                 consensus[feat] = [model]
     for feat in scores.keys():
         # sum the top N (equal to num_models_rank)
-        scores[feat] = sum(sorted(scores[feat], reverse=True)[:num_models_rank])
-    if policy == 'mean':
-        for feat, score in scores.items():
-            scores[feat] = score / len(consensus[feat][:num_models_rank])
+        scores[feat] = sum(sorted(scores[feat], reverse=True))#[:num_models_rank])
+    # Get mean scores
+    for feat, score in scores.items():
+        scores[feat] = score / len(consensus[feat])#[:num_models_rank])
     return scores

@@ -1,0 +1,12 @@
+MODEL_INFO:
+  NAME: "Random-Forest-CC-1"
+  TYPE: "random_forest"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    n_estimators: 1000
+    class_weight: "balanced"
+    calibrated_classifier_cv_args:
+      cv: 5
+      method: "sigmoid"

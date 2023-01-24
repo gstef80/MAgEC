@@ -1,32 +1,19 @@
 import multiprocessing as mp
 from collections import defaultdict
-from typing import Dict
+
 
 import numpy as np
 import pandas as pd
-import yaml
+from src.table15.utils.data_tables import DataTables
+
+from src.table15.utils.models_container import ModelsContainer
+
 
 # from table15.utils import magec_utils as mg
 from . import magec_utils as mg
 
 
-def yaml_parser(yaml_path):
-    with open(yaml_path, 'r') as file:
-        parsed_yaml = yaml.safe_load(file)
-    return parsed_yaml
-
-    
-def get_from_configs(configs: Dict, key: str, param_type: str=None):
-    key = key.upper()
-    if param_type in configs and key in configs[param_type]:
-        return configs[param_type][key]
-    if key in configs['CONFIGS']:
-        return configs['CONFIGS'][key]
-    print(f'Warning: could not locate param {key} in configs')
-    return None
-
-
-def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, mp_manager=None):
+def generate_perturbation_predictions(data_tables, perturbation_params, models_dict, mp_manager=None):
     is_multi_process = False
     run_dfs = dict()
     if mp_manager is not None:
@@ -35,18 +22,21 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
         processes = []
     
     keys = []
+    baselines = perturbation_params["baselines"]
     for baseline in baselines:
-        for model in models_dict.keys():
-            key = model + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model + '_0'
+        perturbation_params["baseline"] = baseline
+        for model_name in models_dict.keys():
+            perturbation_params["model_name"] = model_name
+            key = model_name + '_p{}'.format(int(baseline * 100)) if baseline not in [None, 'None'] else model_name + '_0'
             keys.append(key)
-            clf = models_dict[model]
+            clf = models_dict[model_name]
             if is_multi_process is False:
-                if model in ['lstm']:
+                if model_name in ['lstm']:
                     clf = clf.model
-                run_dfs[key] = run_magecs_single(clf, x_validation_p, y_validation_p, model, key, baseline, features, feature_type, set_feature_values)
+                run_dfs[key] = run_magecs_single_process(clf, data_tables, key, perturbation_params.copy())
             elif is_multi_process is True:
-                p = mp.Process(name=key, target=run_magecs_multip, 
-                    args=(run_dfs, clf, x_validation_p, y_validation_p, model, baseline, features, feature_type, set_feature_values))
+                p = mp.Process(name=key, target=run_magecs_multiprocess, 
+                    args=(run_dfs, clf, data_tables, perturbation_params.copy()))
                 processes.append(p)
         
     if is_multi_process:
@@ -59,33 +49,27 @@ def generate_perturbation_predictions(models_dict, x_validation_p, y_validation_
     return baseline_runs
 
 
-def run_magecs_single(clf, x_validation_p, y_validation_p, model_name, key, baseline, features, feature_type, set_feature_values):
+def run_magecs_single_process(clf, data_tables, key, perturbation_params):
     print('Starting single-process:', key)
-    is_timeseries = False
-    if model_name == 'lstm':
-        is_timeseries = True
-    magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, set_feature_values, model_name=model_name, baseline=baseline, timeseries=is_timeseries)
-    print('Magecs for {} computed...'.format(key))
-    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
-    print('Magecs for {} normalized...'.format(key))
-    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
-    print('Exiting :', key)
+    magecs = run_magecs(key, clf, data_tables, perturbation_params)
     return magecs
     
 
-def run_magecs_multip(return_dict, clf, x_validation_p, y_validation_p, model_name, baseline, features, feature_type, set_feature_values):
+def run_magecs_multiprocess(return_dict, clf, data_tables, perturbation_params):
     p_name = mp.current_process().name
     print('Starting multi-process:', p_name)
-    is_timeseries = False
-    if model_name == 'lstm':
-        is_timeseries = True
-    magecs = mg.case_magecs(clf, x_validation_p, features, feature_type, set_feature_values, model_name=model_name, baseline=baseline, timeseries=is_timeseries)
-    print('Magecs for {} computed...'.format(p_name))
-    magecs = mg.normalize_magecs(magecs, features=features, model_name=model_name)
-    print('Magecs for {} normalized...'.format(p_name))
-    magecs = magecs.merge(y_validation_p, left_on=['case', 'timepoint'], right_index=True)
-    print('Exiting :', p_name)
+    magecs = run_magecs(p_name, clf, data_tables, perturbation_params)
     return_dict[p_name] = magecs
+    
+
+def run_magecs(name, clf, data_tables, perturbation_params):
+    magecs = mg.case_magecs(clf, data_tables.x_validation_p, perturbation_params, data_tables.set_feature_values)
+    print('Magecs for {} computed...'.format(name))
+    magecs = mg.normalize_magecs(magecs, features=perturbation_params["features"], model_name=perturbation_params["model_name"])
+    print('Magecs for {} normalized...'.format(name))
+    magecs = magecs.merge(data_tables.y_validation_p, left_on=['case', 'timepoint'], right_index=True)
+    print('Exiting :', name)
+    return magecs
 
 
 def combine_baseline_runs(main_dict, to_combine_dict, baselines):
@@ -94,29 +78,44 @@ def combine_baseline_runs(main_dict, to_combine_dict, baselines):
     return main_dict
 
 
-def score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, model_feat_imp_dict, policy, num_models_rank):
+def aggregate_scores(model_runs_per_baseline: pd.DataFrame, model_names: list, features: list):
+    
+    feats_to_agg_cols = [[mg.create_magec_col(m, f) for m in model_names] for f in features]
+    agg_series_list = []
+    for cols, feat in zip(feats_to_agg_cols, features):
+        agg_series = pd.Series(model_runs_per_baseline[cols].mean(axis=1), name=feat)
+        agg_series = np.exp(agg_series)
+        agg_series_list.append(agg_series)
+    return pd.concat(agg_series_list, axis=1)
+    
+
+def score_models_per_baseline(baseline_runs, data_tables, models_container, features, use_rank=False):
     baseline_to_scores_df = {}
     all_joined_dfs = {}
+    model_names = list(models_container.models_dict.keys())
     for baseline, model_runs in baseline_runs.items():
-        baseline_joined = mg.magec_models(*model_runs,
-                            Xdata=x_validation_p,
-                            Ydata=y_validation_p,
+        model_runs_per_baseline = mg.magec_models(*model_runs,
+                            Xdata=data_tables.x_validation_p,
+                            Ydata=data_tables.y_validation_p,
                             features=features)
-        baseline_ranked_df = mg.magec_rank(baseline_joined, rank=len(features), features=features, models=models)
-        scores_df = agg_scores(baseline_ranked_df, model_feat_imp_dict, policy=policy, models=models, num_models_rank=num_models_rank)
+        if use_rank is False:
+            scores_df = aggregate_scores(model_runs_per_baseline, model_names, features)
+        else:
+            baseline_ranked_df = mg.magec_rank(model_runs_per_baseline, 
+                                            rank=len(features), features=features, models=model_names)
+            scores_df = agg_scores(baseline_ranked_df, models_container.model_feat_imp_dict, model_names)
 
-        all_joined_dfs[baseline] = baseline_joined
+        all_joined_dfs[baseline] = model_runs_per_baseline
         baseline_to_scores_df[baseline] = scores_df
     return baseline_to_scores_df, all_joined_dfs
 
 
-def agg_scores(ranked_df, model_feat_imp_dict, policy='mean', models=('mlp', 'rf', 'lr'), num_models_rank=None):
+def agg_scores(ranked_df, model_feat_imp_dict, models):
     cols = list(set(ranked_df.columns) - {'case', 'timepoint', 'Outcome'})
     magecs_feats = mg.name_matching(cols, models)
     out = list()
     for (idx, row) in ranked_df.iterrows():
-        scores = mg.magec_scores(magecs_feats, row, model_feat_imp_dict, use_weights=False,
-                                 policy=policy, num_models_rank=num_models_rank)
+        scores = mg.magec_scores(magecs_feats, row, model_feat_imp_dict, use_weights=False)
         out.append(scores)
     
     return pd.DataFrame.from_records(out)
@@ -124,13 +123,14 @@ def agg_scores(ranked_df, model_feat_imp_dict, policy='mean', models=('mlp', 'rf
 
 def get_string_repr(df, feats):
     base_strings = []
-    for feat in feats:
-        mean = round(df[feat].mean(), 4)
-        # std = round(df[feat].std(), 4)
-        sem = round(df[feat].sem(), 4)
-        # string_repr = f'{mean} +/- {std}'
-        string_repr = f'{mean} ({sem})'
-        base_strings.append(string_repr)
+    if not df.empty:
+        for feat in feats:
+            mean = round(df[feat].mean(), 4)
+            # std = round(df[feat].std(), 4)
+            sem = round(df[feat].sem(), 4)
+            # string_repr = f'{mean} +/- {std}'
+            string_repr = f'{mean} ({sem})'
+            base_strings.append(string_repr)
     return base_strings
 
 
@@ -173,72 +173,76 @@ def store_run_dfs_by_baseline(run_dfs, keys):
     return baseline_runs
 
 
-def generate_table_by_feature_type(configs, x_validation_p, y_validation_p, models_dict, model_feat_imp_dict, set_feature_values,
-                                   validation_stats_dict, features, feature_type='numerical'):
+def generate_table_by_feature_type(configs, data_tables: DataTables, models_container: ModelsContainer, 
+                                   feature_type: str='numerical'):
     print(f'Generating Table1.5 for {feature_type} features')
 
-    models = get_from_configs(configs, 'MODELS', param_type='CONFIGS')
-    use_ensemble = get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
-    policy = get_from_configs(configs, 'POLICY', param_type='CONFIGS')
-    skip_multiprocessing = get_from_configs(configs, 'SKIP_MULTIPROCESSING', param_type='MODELS')
-    num_models_rank = get_from_configs(configs, 'NUM_MODELS_RANK', param_type='MODELS')
+    # use_ensemble = get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
+    skip_multiprocessing = configs.get_from_configs("SKIP_MULTIPROCESSING", param_type="MODELS")
     
-    if feature_type not in ["numerical", "binary", "categorical"]:
-        raise ValueError('Feature type must be numerical, binary, or categorical')
+    if feature_type not in ["numerical", "binary", "categorical", "grouped"]:
+        raise ValueError('Feature type must be numerical, binary, categorical, or grouped')
     
-    if len(features) == 0:
+    grouped_features = data_tables.grouped_features
+    features = data_tables.get_features_by_type(feature_type)
+    
+    if features is None or len(features) == 0:
         return None, None
     
-    if feature_type == 'numerical':
-        baselines = get_from_configs(configs, 'BASELINES', param_type='CONFIGS')
+    if feature_type == 'numerical' or feature_type == "grouped":
+        baselines = configs.get_from_configs("BASELINES", param_type="CONFIGS")
     elif feature_type == 'binary':
         baselines = [0, 1]
     elif feature_type == 'categorical':
         baselines = [1]
+        
+    perturbation_params = {
+        "baselines": baselines,
+        "features": features,
+        "feature_type": feature_type,
+    }
 
     if skip_multiprocessing is False:
-        baseline_runs = baseline_runs_via_multip(
-            models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, use_ensemble=use_ensemble)
-        
+        baseline_runs = baseline_runs_via_multip(data_tables, models_container, perturbation_params)
     else:
         print('getting magecs for all models with single-processing ...')
         baseline_runs = generate_perturbation_predictions(
-            models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, mp_manager=None)
+            data_tables, perturbation_params, models_container.models_dict)
+    if isinstance(features[0], list):
+        features = ["::".join(group) for group in grouped_features]
+    baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, data_tables, models_container, features)
 
-    baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, x_validation_p, y_validation_p, features, models, model_feat_imp_dict, 
-                                                                      policy, num_models_rank)
-
-    df_logits_out = visualize_output(baseline_to_scores_df, baselines, features, validation_stats_dict)
+    df_logits_out = visualize_output(baseline_to_scores_df, baselines, features, feature_type)
 
     return df_logits_out, all_joined_dfs
 
 
-def baseline_runs_via_multip(models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, use_ensemble=True):
+def baseline_runs_via_multip(data_tables, models_container, perturbation_params):
     # Flag for single-process models
     has_tf_models = False
-    if 'mlp' in models_dict:
+    if 'mlp' in models_container.models_dict:
         has_tf_models = True
 
-    mp_models_dict = models_dict.copy()
+    mp_models_dict = models_container.models_dict.copy()
     if has_tf_models:
         tf_models_list = ['mlp']
-        if use_ensemble is True:
-            tf_models_list.append('ensemble')
-        tf_models_dict = {tf_model: models_dict[tf_model] for tf_model in tf_models_list}
+        # if use_ensemble is True:
+        #     tf_models_list.append('ensemble')
+        tf_models_dict = {tf_model: models_container.models_dict[tf_model] for tf_model in tf_models_list}
         for tf_model in tf_models_list:
             del mp_models_dict[tf_model]
 
     with mp.Manager() as manager:
         print('getting magecs for non-TF models via multiprocessing...')
         baseline_runs = generate_perturbation_predictions(
-            mp_models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, mp_manager=manager)
+            data_tables, perturbation_params, mp_models_dict, mp_manager=manager)
         print('Done multiprocessing')
     
     if has_tf_models:
         print('getting magecs for TF models with single-processing ...')
         tf_baseline_runs = generate_perturbation_predictions(
-            tf_models_dict, x_validation_p, y_validation_p, baselines, features, feature_type, set_feature_values, mp_manager=None)
-
+            data_tables, perturbation_params, tf_models_dict, mp_manager=None)
+        baselines = perturbation_params["baselines"]
         baseline_runs = combine_baseline_runs(baseline_runs, tf_baseline_runs, baselines)
     
     return baseline_runs

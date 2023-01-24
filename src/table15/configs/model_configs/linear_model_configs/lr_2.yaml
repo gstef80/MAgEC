@@ -1,0 +1,11 @@
+MODEL_INFO:
+  NAME: "Logistic-Regression-2"
+  TYPE: "logistic_regression"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    dual: false
+    penalty: l2
+    C: 0.5
+    class_weight: "balanced"

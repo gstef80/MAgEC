@@ -1,0 +1,12 @@
+MODEL_INFO:
+  NAME: "Logistic-Regression-CV-1"
+  TYPE: "logistic_regression_cv"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    dual: false
+    penalty: "l2"
+    Cs: 10
+    class_weight: "balanced"
+    cv: 5

@@ -1,0 +1,12 @@
+MODEL_INFO:
+  NAME: "Linear-SVM-CC-1"
+  TYPE: "linear_svm"
+  SOURCE_MODULE: "sklearn"
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    dual: false
+    class_weight: "balanced"
+    calibrated_classifier_cv_args:
+      cv: 5
+      method: "sigmoid"
