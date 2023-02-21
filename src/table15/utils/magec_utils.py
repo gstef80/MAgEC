@@ -68,7 +68,7 @@ def create_magec_col(model_name, feature):
     return model_name + '_' + feature
 
 
-def case_magecs(clf, data, perturbation_params, set_feature_values):
+def case_magecs(model, data, perturbation_params, set_feature_values):
     """
     Compute MAgECs for every 'case' (individual row/member table).
     Use all features in data to compute MAgECs.
@@ -78,18 +78,18 @@ def case_magecs(clf, data, perturbation_params, set_feature_values):
     features = perturbation_params["features"]
     feature_type = perturbation_params["feature_type"]
     baseline = perturbation_params["baseline"]
-    model_name = clf.name
+    output_type = perturbation_params["output_type"]
     
     if feature_type == "grouped":
-        perturbation = GroupPerturbation(data, clf, features, feature_type)
+        perturbation = GroupPerturbation(data, model, features, feature_type)
     else:
-        perturbation = ZPerturbation(data, clf, features, feature_type)
+        perturbation = ZPerturbation(data, model, features, feature_type)
 
-    magecs = perturbation.run_perturbation(set_feature_values, baseline=baseline)
+    magecs = perturbation.run_perturbation(set_feature_values, output_type, baseline=baseline)
     all_features = magecs.columns
     magecs = magecs.reset_index()
     # rename features in case_magecs to reflect the fact that they are derived for a specific model
-    prefix = 'm' if model_name is None else model_name
+    prefix = 'm' if model.name is None else model.name
     postfix = prefix
     for feat in all_features:
         if feat == 'orig_prob' or (feat[:8] == 'perturb_' and feat[-5:] == '_prob'):

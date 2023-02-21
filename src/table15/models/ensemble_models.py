@@ -76,5 +76,8 @@ class SklearnVotingClassifier(EnsembleModels):
         assert len(self.estimators) > 1, "Voting Classifier does not have enough estimators"
         self.model = self.model(self.estimators, **self.model_args)
         return self
+    
+    def extract_feature_importances(self) -> np.array:
+        raise NotImplementedError
 
     

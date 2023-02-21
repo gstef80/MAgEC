@@ -1,0 +1,26 @@
+DATA:
+  PATH: "src/data/healthcare-dataset-stroke-data.csv"
+  TYPE: "csv"
+  N_DATA_SAMPLES: null
+  TEST_SIZE: 0.2
+  RANDOM_SEED: null
+
+
+FEATURES:
+  NUMERICAL: ["age", "avg_glucose_level", "bmi"]
+  SETTED_NUMERICAL_VALUES:
+    Insulin: 45
+    bmi: 20
+
+  CATEGORICAL: ["work_type", "smoking_status"]
+  BINARY: ["heart_disease"]
+  GROUPED:
+    - ["avg_glucose_level", "bmi"]
+
+  TARGET: ["stroke"]
+
+
+PERTURBATIONS:
+  NUMERICAL_INTENSITIES: [1., 0.5, 0.3, 0.1]
+  GROUPED_INTENSITIES: [1., 0.5, 0.3, 0.1]
+  OUTPUT_TYPE: "relative_risk"

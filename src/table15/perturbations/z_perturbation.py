@@ -1,13 +1,14 @@
 from typing import List
+from src.table15.models.model import Model
 from src.table15.perturbations.perturbation import Perturbation
 import numpy as np
 import pandas as pd
 
 class ZPerturbation(Perturbation):
-    def __init__(self, target_data: pd.DataFrame, model_name: str, features: List[str], feature_type: str) -> None:
-        super().__init__(target_data, model_name, features, feature_type)
+    def __init__(self, target_data: pd.DataFrame, model: Model, features: List[str], feature_type: str) -> None:
+        super().__init__(target_data, model, features, feature_type)
         
-    def run_perturbation(self, set_feature_values, baseline=1.0):
+    def run_perturbation(self, set_feature_values, output_type, baseline=1.0):
         '''
         Main method for computing a MAgEC. Assumes 'scaled/normalized' features in target data.
             Supporting 2 types of variables:
@@ -17,28 +18,21 @@ class ZPerturbation(Perturbation):
             For a binary classification task, where 1 denotes a "bad" outcome, a good perturbation
             is expected to result in a negative score_comparison (assuming monotonic score_preprocessing).
         '''
-        prob_deltas_per_cell = pd.DataFrame(index=self.target_data.index, columns=self.target_data.columns)
+        output_df = pd.DataFrame(index=self.target_data.index, columns=self.target_data.columns)
         
         # Predict for original data
-        base_df = self.model_predict_probs_and_logits(self.target_data.copy(), self.model_name, label="orig")
+        base_df = self.model_predict_probs_and_logits(self.target_data.copy(), self.model, label="orig")
         
         for var_name in self.features:
             # Predict for perturbed feature data
             perturb_df = self.perturb_feature_by_feature_type(
                 self.target_data.copy(), var_name, baseline, set_feature_values, self.feature_type)
-            perturb_df = self.model_predict_probs_and_logits(perturb_df, self.model_name, label="perturb")
-            
-            # Odds ratios
-            logit_orig = base_df['logit_orig']
-            logit_perturb = perturb_df['logit_perturb']
-            logit_diff = self.logit_score_comparison(logit_orig, logit_perturb)
-            # odds_ratio = np.exp(logit_diff)
-            # store
-            prob_deltas_per_cell[var_name] = logit_diff
-            prob_deltas_per_cell[f'perturb_{var_name}_prob'] = perturb_df['probs_perturb']
-            prob_deltas_per_cell['orig_prob'] = base_df['probs_orig']
+            perturb_df = self.model_predict_probs_and_logits(perturb_df, self.model, label="perturb")
+            output = self.calculate_output(base_df, perturb_df, output_type)
 
-        return prob_deltas_per_cell.astype(float)
+            output_df = self.store_outputs(output_df, var_name, output, base_df, perturb_df)
+
+        return output_df.astype(float)
     
     def perturb_feature_by_feature_type(self, df, var_name, baseline, set_feature_values, feature_type):
         # perturb to baseline conditions

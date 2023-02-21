@@ -9,7 +9,7 @@ import shap
 from keras.layers import Dense, Dropout
 from keras.models import Sequential
 
-from src.table15.configs import EmptyConfigs, ModelConfigs
+from src.table15.configs import ModelConfigs
 from src.table15.models.model import Model
 from src.table15.models.model_factory import ModelFactory
 
@@ -35,9 +35,9 @@ class ModelsContainer:
             self.models.append(model)
         return self
 
-    def populate_data_tables(self, x_train, y_train, x_test=None) -> ModelsContainer:
+    def populate_data_tables(self, x_train, Y_train, x_test=None) -> ModelsContainer:
         self.x_train = x_train
-        self.y_train = y_train
+        self.Y_train = Y_train
         self.x_test = x_test
         return self
 
@@ -49,7 +49,7 @@ class ModelsContainer:
             raise ValueError("No models generated to train...")
         print('Training models ...')
         for model in self.models:
-            model = model.fit(self.x_train, self.y_train)
+            model = model.fit(self.x_train, self.Y_train)
             self.models_dict[model.name] = model
             print(f"Finished training {model.name} model")
         print(f'Finished generating models {list(self.models_dict.keys())}')
@@ -75,11 +75,6 @@ class ModelsContainer:
         norm = np.linalg.norm(np.array(li))
         return np.abs(li / norm) if is_abs is True else li / norm
     
-    
-    
-    
-    
-
     def extract_model_feature_importance(self, model_name, clf):
         if model_name == "lr":
             return clf.coef_.ravel()

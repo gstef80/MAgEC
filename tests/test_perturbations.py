@@ -16,7 +16,7 @@ def data_and_model():
     configs = plutils.yaml_parser(yaml_path)
     
     dutils = DataTables().generate_data(configs)
-    mutils = ModelsContainer(dutils.x_train_p, dutils.y_train_p, dutils.x_validation_p)
+    mutils = ModelsContainer(dutils.x_train, dutils.Y_train, dutils.x_test)
     return dutils, mutils
 
 

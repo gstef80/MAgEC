@@ -1,0 +1,26 @@
+DATA:
+  PATH: "src/data/diabetes.csv"
+  TYPE: "csv"
+  N_DATA_SAMPLES: null
+  TEST_SIZE: 0.2
+  RANDOM_SEED: null
+
+
+FEATURES:
+  NUMERICAL: ["BloodPressure", "BMI"]
+  SETTED_NUMERICAL_VALUES:
+    Insulin: 45
+    bmi: 20
+
+  CATEGORICAL: []
+  BINARY: []
+  GROUPED:
+    - ["BloodPressure", "BMI"]
+
+  TARGET: ["Outcome"]
+
+
+PERTURBATIONS:
+  NUMERICAL_INTENSITIES: [1., 0.1]
+  GROUPED_INTENSITIES: [1., 0.1]
+  OUTPUT_TYPE: "relative_risk"

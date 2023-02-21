@@ -1,9 +1,11 @@
 import multiprocessing as mp
 from collections import defaultdict
+from typing import Any, Dict
 
 
 import numpy as np
 import pandas as pd
+from src.table15.configs import DataConfigs
 from src.table15.utils.data_tables import DataTables
 
 from src.table15.utils.models_container import ModelsContainer
@@ -63,11 +65,11 @@ def run_magecs_multiprocess(return_dict, clf, data_tables, perturbation_params):
     
 
 def run_magecs(name, clf, data_tables, perturbation_params):
-    magecs = mg.case_magecs(clf, data_tables.x_validation_p, perturbation_params, data_tables.set_feature_values)
+    magecs = mg.case_magecs(clf, data_tables.x_test, perturbation_params, data_tables.setted_numerical_values)
     print('Magecs for {} computed...'.format(name))
     magecs = mg.normalize_magecs(magecs, features=perturbation_params["features"], model_name=perturbation_params["model_name"])
     print('Magecs for {} normalized...'.format(name))
-    magecs = magecs.merge(data_tables.y_validation_p, left_on=['case', 'timepoint'], right_index=True)
+    magecs = magecs.merge(data_tables.Y_test, left_on=['case', 'timepoint'], right_index=True)
     print('Exiting :', name)
     return magecs
 
@@ -95,8 +97,8 @@ def score_models_per_baseline(baseline_runs, data_tables, models_container, feat
     model_names = list(models_container.models_dict.keys())
     for baseline, model_runs in baseline_runs.items():
         model_runs_per_baseline = mg.magec_models(*model_runs,
-                            Xdata=data_tables.x_validation_p,
-                            Ydata=data_tables.y_validation_p,
+                            Xdata=data_tables.x_test,
+                            Ydata=data_tables.Y_test,
                             features=features)
         if use_rank is False:
             scores_df = aggregate_scores(model_runs_per_baseline, model_names, features)
@@ -134,7 +136,7 @@ def get_string_repr(df, feats):
     return base_strings
 
 
-def produce_output_df(output, features, baselines, validation_stats_dict):
+def produce_output_df(output, features, baselines, test_stats_dict):
     df_out = pd.DataFrame.from_records(output)
     df_out['feature'] = features
     # re-order cols
@@ -142,13 +144,13 @@ def produce_output_df(output, features, baselines, validation_stats_dict):
     # df_out = df_out.rename(columns={'0': 'full'})
     df_out = df_out[cols]
     
-    # for stat, stats_series in validation_stats_dict.items():
+    # for stat, stats_series in test_stats_dict.items():
     #     df_out[stat] = stats_series.values
     
     return df_out
 
 
-def visualize_output(baseline_to_scores_df, baselines, features, validation_stats_dict):
+def visualize_output(baseline_to_scores_df, baselines, features, test_stats_dict):
     output = {}
     for baseline in baselines:
         df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline])
@@ -157,7 +159,7 @@ def visualize_output(baseline_to_scores_df, baselines, features, validation_stat
     # TODO: fix baselines upstream  to handle None as 0
     formatted_baselines = baselines.copy()
 
-    df_out =  produce_output_df(output, features, formatted_baselines, validation_stats_dict)
+    df_out =  produce_output_df(output, features, formatted_baselines, test_stats_dict)
     return df_out
 
 
@@ -173,51 +175,52 @@ def store_run_dfs_by_baseline(run_dfs, keys):
     return baseline_runs
 
 
-def generate_table_by_feature_type(configs, data_tables: DataTables, models_container: ModelsContainer, 
-                                   feature_type: str='numerical'):
+def generate_table_by_feature_type(data_tables: DataTables, models_container: ModelsContainer, 
+                                   feature_type: str='numerical', use_multiprocessing: bool=True):
     print(f'Generating Table1.5 for {feature_type} features')
-
-    # use_ensemble = get_from_configs(configs, 'USE_ENSEMBLE', param_type='MODELS')
-    skip_multiprocessing = configs.get_from_configs("SKIP_MULTIPROCESSING", param_type="MODELS")
     
     if feature_type not in ["numerical", "binary", "categorical", "grouped"]:
         raise ValueError('Feature type must be numerical, binary, categorical, or grouped')
     
-    grouped_features = data_tables.grouped_features
     features = data_tables.get_features_by_type(feature_type)
-    
     if features is None or len(features) == 0:
         return None, None
-    
-    if feature_type == 'numerical' or feature_type == "grouped":
-        baselines = configs.get_from_configs("BASELINES", param_type="CONFIGS")
+
+    data_configs = data_tables.data_configs
+    if feature_type in ["numerical", "grouped"]:
+        configs_key = f"{feature_type.upper()}_INTENSITIES"
+        perturbation_intensities = data_configs.get_from_configs(configs_key, param_type="PERTURBATIONS", 
+                                                                 default=[1., 0.5, 0.1])
     elif feature_type == 'binary':
-        baselines = [0, 1]
+        perturbation_intensities = [0, 1]
     elif feature_type == 'categorical':
-        baselines = [1]
+        perturbation_intensities = [1]
+        
+    output_type = data_configs.get_from_configs("OUTPUT_TYPE", param_type="PERTURBATIONS")
         
     perturbation_params = {
-        "baselines": baselines,
+        "baselines": perturbation_intensities,
         "features": features,
         "feature_type": feature_type,
+        "output_type": output_type
     }
 
-    if skip_multiprocessing is False:
+    if use_multiprocessing is False:
         baseline_runs = baseline_runs_via_multip(data_tables, models_container, perturbation_params)
     else:
         print('getting magecs for all models with single-processing ...')
         baseline_runs = generate_perturbation_predictions(
             data_tables, perturbation_params, models_container.models_dict)
     if isinstance(features[0], list):
-        features = ["::".join(group) for group in grouped_features]
+        features = ["::".join(group) for group in data_tables.grouped_features]
     baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, data_tables, models_container, features)
 
-    df_logits_out = visualize_output(baseline_to_scores_df, baselines, features, feature_type)
+    df_logits_out = visualize_output(baseline_to_scores_df, perturbation_intensities, features, feature_type)
 
     return df_logits_out, all_joined_dfs
 
 
-def baseline_runs_via_multip(data_tables, models_container, perturbation_params):
+def baseline_runs_via_multip(data_tables: DataTables, models_container: ModelsContainer, perturbation_params: Dict[str, Any]):
     # Flag for single-process models
     has_tf_models = False
     if 'mlp' in models_container.models_dict:
