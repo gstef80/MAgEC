@@ -8,9 +8,9 @@ DATA:
 
 FEATURES:
   NUMERICAL: ["BloodPressure", "BMI", "Glucose", "Insulin", "SkinThickness"]
-  SETTED_NUMERICAL_VALUES:
-    Insulin: 45
-    bmi: 20
+  # SETTED_NUMERICAL_VALUES:
+  #   Insulin: 45
+  #   bmi: 20
 
   CATEGORICAL: []
   BINARY: []

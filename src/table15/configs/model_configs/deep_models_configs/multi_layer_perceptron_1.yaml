@@ -1,0 +1,19 @@
+MODEL_INFO:
+  NAME: 'Multi-Layer-Perceptron-1'
+  TYPE: 'multi_layer_perceptron'
+  SOURCE_MODULE: 'keras'
+
+MODEL_PARAMS:
+  ARGUMENTS:
+    epochs: 100
+    batch_size: 64
+    verbose: 0
+  BUILD_MODEL:
+    add:
+      - {type: 'Dense', units: 60, activation: 'relu'}
+      - {type: 'Dropout', rate: 0.2}
+      - {type: 'Dense', units: 30, input_dim: 60, activation: 'relu'}
+      - {type: 'Dropout', rate: 0.2}
+      - {type: 'Dense', units: 1, activation: 'sigmoid'}
+    compile:
+      {loss: 'binary_crossentropy', optimizer: 'adam', metrics: ['accuracy']}

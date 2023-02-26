@@ -67,7 +67,7 @@ def run_magecs_multiprocess(return_dict, clf, data_tables, perturbation_params):
 def run_magecs(name, clf, data_tables, perturbation_params):
     magecs = mg.case_magecs(clf, data_tables.x_test, perturbation_params, data_tables.setted_numerical_values)
     print('Magecs for {} computed...'.format(name))
-    magecs = mg.normalize_magecs(magecs, features=perturbation_params["features"], model_name=perturbation_params["model_name"])
+    # magecs = mg.normalize_magecs(magecs, features=perturbation_params["features"], model_name=perturbation_params["model_name"])
     print('Magecs for {} normalized...'.format(name))
     magecs = magecs.merge(data_tables.Y_test, left_on=['case', 'timepoint'], right_index=True)
     print('Exiting :', name)
@@ -86,7 +86,7 @@ def aggregate_scores(model_runs_per_baseline: pd.DataFrame, model_names: list, f
     agg_series_list = []
     for cols, feat in zip(feats_to_agg_cols, features):
         agg_series = pd.Series(model_runs_per_baseline[cols].mean(axis=1), name=feat)
-        agg_series = np.exp(agg_series)
+        # agg_series = np.exp(agg_series)
         agg_series_list.append(agg_series)
     return pd.concat(agg_series_list, axis=1)
     
@@ -131,7 +131,7 @@ def get_string_repr(df, feats):
             # std = round(df[feat].std(), 4)
             sem = round(df[feat].sem(), 4)
             # string_repr = f'{mean} +/- {std}'
-            string_repr = f'{mean} ({sem})'
+            string_repr = f'{mean:.3f} ({sem:.3f})'
             base_strings.append(string_repr)
     return base_strings
 

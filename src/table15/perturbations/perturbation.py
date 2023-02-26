@@ -57,8 +57,8 @@ class Perturbation:
     def logits_score_comparison(self, x_orig, x_perturb):
         return x_perturb - x_orig
     
-    def relative_risk_comparison(self, probs_orig, probs_perturb):
-        return ((probs_orig - probs_perturb) / probs_orig) * 100
+    def relative_risk_comparison(self, probs_orig, probs_perturb, eps=1e-16):
+        return ((probs_orig - probs_perturb + eps) / (probs_orig + eps)) * 100
     
     def logits_diff_to_odds_ratio(self, logits_diff):
         return np.exp(logits_diff)
@@ -80,6 +80,8 @@ class Perturbation:
                 output = logits_diff
             elif output_type == "odds_ratios":
                 output = self.logits_diff_to_odds_ratio(logits_diff)
+        else:
+            raise ValueError("output_type should be one of ['logits', 'odds_ratios', 'relative_risk']")
         
         return output
     
