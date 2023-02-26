@@ -39,21 +39,22 @@ class DataTables:
             out[cols] = out[cols].fillna(out[cols].mean())
             return out
 
-        csv_path = self.data_configs.get_from_configs("PATH", param_type="DATA")
+        csv_path = self.data_configs.get_from_configs('PATH', param_type='DATA')
         csv_path = self.data_configs.to_absolute_path(csv_path)
 
-        numerical_features = self.data_configs.get_from_configs("NUMERICAL", param_type="FEATURES")
-        categorical_features = self.data_configs.get_from_configs("CATEGORICAL", param_type="FEATURES")
-        binary_features = self.data_configs.get_from_configs("BINARY", param_type="FEATURES")
-        target_feature = self.data_configs.get_from_configs("TARGET", param_type="FEATURES")
-        self.grouped_features = self.data_configs.get_from_configs("GROUPED", param_type="FEATURES")
+        numerical_features = self.data_configs.get_from_configs('NUMERICAL', param_type='FEATURES')
+        categorical_features = self.data_configs.get_from_configs('CATEGORICAL', param_type='FEATURES')
+        binary_features = self.data_configs.get_from_configs('BINARY', param_type='FEATURES')
+        target_feature = self.data_configs.get_from_configs('TARGET', param_type='FEATURES')
+        self.grouped_features = self.data_configs.get_from_configs('GROUPED', param_type='FEATURES')
         
-        self.setted_numerical_values = self.data_configs.get_from_configs("SETTED_NUMERICAL_VALUES", 
-                                                                          param_type="FEATURES",
+        self.setted_numerical_values = self.data_configs.get_from_configs('SETTED_NUMERICAL_VALUES', 
+                                                                          param_type='FEATURES',
                                                                           default={})
-        n_data_samples = self.data_configs.get_from_configs("N_DATA_SAMPLES", param_type="DATA")
-        test_size = self.data_configs.get_from_configs("TEST_SIZE", param_type="DATA")
-        random_seed = self.data_configs.get_from_configs("RANDOM_SEED", param_type="DATA")
+        n_data_samples = self.data_configs.get_from_configs('N_DATA_SAMPLES', param_type='DATA')
+        test_size = self.data_configs.get_from_configs('TEST_SIZE', param_type='DATA')
+        random_seed = self.data_configs.get_from_configs('RANDOM_SEED', param_type='DATA')
+        only_test_positive_class =  self.data_configs.get_from_configs('ONLY_TEST_POSITIVE_CLASS', param_type='DATA')
 
         if random_seed is not None:
             np.random.seed(random_seed)
@@ -69,10 +70,10 @@ class DataTables:
         x_bin = df.loc[:, binary_features]
         self.binary_features = binary_features
 
-        x_cat = df.loc[:, categorical_features].fillna("")
+        x_cat = df.loc[:, categorical_features].fillna('')
         if not x_cat.empty:
             # use prefix_sep to delimitate later
-            x_cat = pd.get_dummies(x_cat, prefix_sep="__cat__")
+            x_cat = pd.get_dummies(x_cat, prefix_sep='__cat__')
         self.categorical_features = list(x_cat.columns)
         
         non_numerical_features = self.binary_features + self.categorical_features
@@ -83,9 +84,10 @@ class DataTables:
 
         x_train, self.x_test, Y_train, self.Y_test = train_test_split(x, Y, test_size=test_size, random_state=random_seed)
         
-        # Only test (get Magecs for) sick patients
-        # self.Y_test = self.Y_test[self.Y_test[target_feature[0]] == 1.]
-        # self.x_test = self.x_test[self.x_test.index.isin(self.Y_test.index)]
+        if only_test_positive_class == True:
+            # Only test (get Magecs for) positive class cases.
+            self.Y_test = self.Y_test[self.Y_test[target_feature[0]] == 1.]
+            self.x_test = self.x_test[self.x_test.index.isin(self.Y_test.index)]
 
         stsc = StandardScaler()
         
@@ -101,27 +103,24 @@ class DataTables:
             xst_test = pd.concat([xst_test, self.x_test[non_numerical_features]], axis=1)
             
             self.rescale_set_feature_values_dict(stsc, numerical_features)
+        
+        self.generate_test_stats()
 
         # Format
         self.x_train = self.format_df(xst_train.copy())
         self.Y_train = self.format_df(Y_train.copy())
         self.x_test = self.format_df(xst_test.copy())
         self.Y_test = self.format_df(self.Y_test.copy())
-        
-        
-        self.generate_test_stats()
 
         return self
     
-    
     def format_df(self, df):
         df = pd.DataFrame(df)
-        df["timepoint"] = 0
-        df["case"] = np.arange(len(df))
-        df.set_index(["case", "timepoint"], inplace=True)
+        df['timepoint'] = 0
+        df['case'] = np.arange(len(df))
+        df.set_index(['case', 'timepoint'], inplace=True)
         df.sort_index(axis=1, inplace=True)
         return df
-    
     
     def rescale_set_feature_values_dict(self, stsc, numerical_features):
         scaling_df = pd.DataFrame([[None for _ in range(len(numerical_features))]], columns=numerical_features)
@@ -134,21 +133,25 @@ class DataTables:
                 self.setted_numerical_values[feat] = scaled_values[feat]
 
     def generate_test_stats(self):
-        means = self.x_test.mean()
-        self.test_stats_dict["mean"] = means
+        self.test_stats_dict['numerical'] = {}
+        x_test_num = self.x_test[self.numerical_features]
+        self.test_stats_dict['numerical']['mean'] = x_test_num.mean()
+        self.test_stats_dict['numerical']['std'] = x_test_num.std()
+        self.test_stats_dict['numerical']['median'] = x_test_num.median()
         
-        stds = self.x_test.std()
-        self.test_stats_dict["std"] = stds
+        self.test_stats_dict['binary'] = {}
+        x_test_bin = self.x_test[self.binary_features]
+        self.test_stats_dict['binary']['prevalence'] = x_test_bin.mean()
         
-        meadians = self.x_test.median()
-        self.test_stats_dict["median"] = meadians
+        self.test_stats_dict['categorical'] = {}
+        x_test_cat = self.x_test[self.categorical_features]
+        self.test_stats_dict['categorical']['counts'] = x_test_cat.sum()
 
     def get_features_by_type(self, feature_type):
         features_type_to_features = {
-            "numerical": self.numerical_features,
-            "binary": self.binary_features,
-            "categorical": self.categorical_features,
-            "grouped": self.grouped_features
+            'numerical': self.numerical_features,
+            'binary': self.binary_features,
+            'categorical': self.categorical_features,
+            'grouped': self.grouped_features
         }
         return features_type_to_features.get(feature_type, None)
-        

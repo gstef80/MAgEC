@@ -79,5 +79,3 @@ class SklearnVotingClassifier(EnsembleModels):
     
     def extract_feature_importances(self) -> np.array:
         raise NotImplementedError
-
-    

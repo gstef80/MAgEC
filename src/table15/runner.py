@@ -69,8 +69,8 @@ def run(configs_path: str='./configs/pima_diabetes.yaml'):
 
 if __name__ == '__main__':
     
-    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
-    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
+    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
     
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)

@@ -68,7 +68,7 @@ def run_magecs(name, clf, data_tables, perturbation_params):
     magecs = mg.case_magecs(clf, data_tables.x_test, perturbation_params, data_tables.setted_numerical_values)
     print('Magecs for {} computed...'.format(name))
     # magecs = mg.normalize_magecs(magecs, features=perturbation_params["features"], model_name=perturbation_params["model_name"])
-    print('Magecs for {} normalized...'.format(name))
+    # print('Magecs for {} normalized...'.format(name))
     magecs = magecs.merge(data_tables.Y_test, left_on=['case', 'timepoint'], right_index=True)
     print('Exiting :', name)
     return magecs
@@ -144,22 +144,23 @@ def produce_output_df(output, features, baselines, test_stats_dict):
     # df_out = df_out.rename(columns={'0': 'full'})
     df_out = df_out[cols]
     
-    # for stat, stats_series in test_stats_dict.items():
-    #     df_out[stat] = stats_series.values
+    if test_stats_dict is not None:
+        for stat, stats_series in test_stats_dict.items():
+            df_out[stat] = stats_series.values
     
     return df_out
 
 
-def visualize_output(baseline_to_scores_df, baselines, features, test_stats_dict):
+def visualize_output(baseline_to_scores_df, baselines, features, test_stats_dict_feature_type):
     output = {}
     for baseline in baselines:
         df_out = pd.DataFrame.from_records(baseline_to_scores_df[baseline])
         output[baseline] = get_string_repr(df_out, features)
     
-    # TODO: fix baselines upstream  to handle None as 0
-    formatted_baselines = baselines.copy()
+    # # TODO: fix baselines upstream  to handle None as 0
+    # formatted_baselines = baselines.copy()
 
-    df_out =  produce_output_df(output, features, formatted_baselines, test_stats_dict)
+    df_out =  produce_output_df(output, features, baselines, test_stats_dict_feature_type)
     return df_out
 
 
@@ -215,7 +216,7 @@ def generate_table_by_feature_type(data_tables: DataTables, models_container: Mo
         features = ["::".join(group) for group in data_tables.grouped_features]
     baseline_to_scores_df, all_joined_dfs = score_models_per_baseline(baseline_runs, data_tables, models_container, features)
 
-    df_logits_out = visualize_output(baseline_to_scores_df, perturbation_intensities, features, feature_type)
+    df_logits_out = visualize_output(baseline_to_scores_df, perturbation_intensities, features, data_tables.test_stats_dict.get(feature_type))
 
     return df_logits_out, all_joined_dfs
 

@@ -3,11 +3,10 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any, Dict, List, Union
 
-from keras.layers import Dense, Dropout
+import numpy as np
+from keras.layers import Dense, Dropout, Layer
 from keras.models import Sequential
 from keras.wrappers.scikit_learn import KerasClassifier
-from keras.layers import Layer
-import numpy as np
 
 from src.table15.models.model import Model
 
@@ -60,10 +59,9 @@ class KerasMultiLayerPerceptron(DeepModels):
             layer_params_copy = layer_params.copy()
             layer_obj = self.str_to_layer[layer_params_copy['type']]
             _ = layer_params_copy.pop('type')
-            # if 'input_dim' in layer_params:
-            #     input_dim = layer_params.pop('input_dim')
-            #     input_dim = input_dim = 
-            # input_dim = layer_params.pop('input_dim')
             mlp.add(layer_obj(**layer_params_copy))
         mlp.compile(**compiler_params)
         return mlp
+    
+    def extract_feature_importances(self) -> np.array:
+        raise NotImplementedError

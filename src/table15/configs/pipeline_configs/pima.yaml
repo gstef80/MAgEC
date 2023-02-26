@@ -1,5 +1,5 @@
 DATA:
-  DATA_CONFIGS_PATH: "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/data_configs/pima_full.yaml"
+  DATA_CONFIGS_PATH: "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/data_configs/pima_lite.yaml"
 
 
 MODELS:
