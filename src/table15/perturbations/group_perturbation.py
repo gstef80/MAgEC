@@ -31,14 +31,13 @@ class GroupPerturbation(Perturbation):
     def perturb_group(self, df, grouped_vars, baseline):
         perturbed = df.copy()
         
-        set_val = 0.0
         curr_vals = perturbed.loc[:, grouped_vars]
         new_vals = self.perturb_num_df_with_baseline_scaling(curr_vals, baseline)
         perturbed[grouped_vars] = new_vals
         return perturbed
         
     def perturb_num_df_with_baseline_scaling(self, curr_vals, baseline_scaling):
-        return curr_vals - float(baseline_scaling)
+        return curr_vals - (curr_vals * float(baseline_scaling))
     
     def perturb_feature_by_feature_type(self, df, var_name, baseline, set_feature_values, feature_type):
         if feature_type == "grouped": 

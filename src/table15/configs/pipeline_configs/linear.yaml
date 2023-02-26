@@ -25,5 +25,5 @@ MODELS:
     - /Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/ensemble_configs/random_forrest_cc_1
   USE_ENSEMBLE: false
   SKIP_MULTIPROCESSING: true
-  USE_FEATURE_IMPORTANCE_SCALING: true
+  USE_FEATURE_IMPORTANCE_SCALING: false
   

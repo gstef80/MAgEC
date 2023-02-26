@@ -26,5 +26,5 @@ MODELS:
   ENSEMBLE_CONFIGS_PATH: "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/model_configs/ensemble_configs/voting_classifier_1"
   USE_ENSEMBLE: false
   SKIP_MULTIPROCESSING: false
-  USE_FEATURE_IMPORTANCE_SCALING: true
+  USE_FEATURE_IMPORTANCE_SCALING: false
   

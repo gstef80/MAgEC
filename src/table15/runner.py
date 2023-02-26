@@ -11,7 +11,15 @@ from src.table15.configs import PipelineConfigs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
-def run(configs_path: str='./configs/pima_diabetes.yaml'):
+def run(configs_path: str='./configs/pima_diabetes.yaml'): 
+    """_summary_
+    Application driver method.
+
+    Args:
+        configs_path (str, optional): _description_. Defaults to './configs/pima_diabetes.yaml'.
+
+    Returns:
+    """
     pipeline_configs = PipelineConfigs(configs_path)
 
     # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
@@ -61,8 +69,8 @@ def run(configs_path: str='./configs/pima_diabetes.yaml'):
 
 if __name__ == '__main__':
     
-    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
-    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
+    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
     
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)
