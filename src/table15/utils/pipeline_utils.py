@@ -180,9 +180,6 @@ def generate_table_by_feature_type(data_tables: DataTables, models_container: Mo
                                    feature_type: str='numerical', use_multiprocessing: bool=True):
     print(f'Generating Table1.5 for {feature_type} features')
     
-    if feature_type not in ["numerical", "binary", "categorical", "grouped"]:
-        raise ValueError('Feature type must be numerical, binary, categorical, or grouped')
-    
     features = data_tables.get_features_by_type(feature_type)
     if features is None or len(features) == 0:
         return None, None
@@ -206,7 +203,7 @@ def generate_table_by_feature_type(data_tables: DataTables, models_container: Mo
         "output_type": output_type
     }
 
-    if use_multiprocessing is False:
+    if use_multiprocessing is True:
         baseline_runs = baseline_runs_via_multip(data_tables, models_container, perturbation_params)
     else:
         print('getting magecs for all models with single-processing ...')

@@ -86,7 +86,7 @@ class Perturbation:
         return output
     
     def store_outputs(self, output_df, feature_col, output, base_df, perturb_df):
-        output_df[feature_col] = output
-        output_df[f'perturb_{feature_col}_prob'] = perturb_df['probs_perturb']
-        output_df['orig_prob'] = base_df['probs_orig']
+        output_df[feature_col] = output.copy()
+        output_df[f'perturb_{feature_col}_prob'] = perturb_df['probs_perturb'].copy()
+        output_df['orig_prob'] = base_df['probs_orig'].copy()
         return output_df

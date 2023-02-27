@@ -46,7 +46,7 @@ class SklearnSVM(SVM):
 
 
 class SklearnLinearSVM(SklearnSVM):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
         self.model = CalibratedClassifierCV
         
@@ -66,7 +66,7 @@ class SklearnLinearSVM(SklearnSVM):
     
 
 class SklearnKernelSVM(SklearnSVM):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
         self.kernel: str = self.model_args["kernel"]
     

@@ -39,7 +39,7 @@ class DeepModels(Model):
         
         
 class KerasMultiLayerPerceptron(DeepModels):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any], 
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]], 
                  build_model_params: Dict[str, Union[List[Dict[str, Any]], Dict[str, Any]]]) -> None:
         super().__init__(name, model_type, model_args, build_model_params)
         self.model: KerasClassifier = KerasClassifier

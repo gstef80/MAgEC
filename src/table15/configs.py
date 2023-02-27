@@ -11,7 +11,7 @@ class Configs(ABC):
     def __init__(self, file_path_str: str) -> None:
         self.configs_dict: Dict[str, Any]
         self.file_path: Path
-        self.configs_dict = self.import_configs(file_path_str)
+        self.configs_dict: Dict[str, Any] = self.import_configs(file_path_str)
         self.assert_compatibility()
         
     @abstractmethod
@@ -22,7 +22,7 @@ class Configs(ABC):
         """
         pass
         
-    def import_configs(self, file_path_str: str) -> Configs:
+    def import_configs(self, file_path_str: str) -> Dict[str, Any]:
         """Imports a Yaml configs from file path
 
         Args:
@@ -39,7 +39,7 @@ class Configs(ABC):
                          param_type: str='CONFIGS',
                          default: Any=None,
                          is_assert_compatibility: bool=False
-                         ) -> Optional[Dict[str, Any]]:
+                         ) -> Any:
         """Scans through configurations dict to find key of interest. Optionally, uses param_type to
         specify specific config types so that similar key names can be distinguished.
 
@@ -77,12 +77,15 @@ class Configs(ABC):
 
 
 class PipelineConfigs(Configs):
-    """Subclass of Configs specific to running pipeline. This Configs contains references to paths of other Configs subclasses.
+    """Subclass of Configs specific to running pipeline. This is the main entry-point config for running the application `runner.run(pipeline_config)`
+    and contains references to other Configs.
     """
     def __init__(self, file_path_str: str) -> None:
         super().__init__(file_path_str)
     
     def assert_compatibility(self):
+        """Ability to fail early is configs yaml is not compatible with expected pipeline arguments
+        """
         data_configs_path: str = self.get_from_configs('DATA_CONFIGS_PATH', param_type='DATA', 
                                                        is_assert_compatibility=True)
         assert data_configs_path is not None and len(data_configs_path) > 0, (
@@ -101,6 +104,8 @@ class DataConfigs(Configs):
         super().__init__(file_path_str)
         
     def assert_compatibility(self):
+        """Ability to fail early is configs yaml is not compatible with expected pipeline arguments
+        """
         data_type: str = self.get_from_configs('PATH', param_type='DATA', is_assert_compatibility=True)
         assert data_type is not None and len(data_type) > 0, "Data PATH not specified in Data Configs"
         
@@ -148,17 +153,28 @@ class ModelConfigs(Configs):
         super().__init__(file_path_str)
         
     def assert_compatibility(self):
+        """Ability to fail early is configs yaml is not compatible with expected pipeline arguments
+        """
         model_module_name: str = self.get_from_configs('SOURCE_MODULE', 
                                                        param_type='MODEL_INFO', 
                                                        is_assert_compatibility=True)
         assert model_module_name.lower() in ['sklearn', 'keras'], "SOURCE MODULE from Model Configs not supported"
     
-    def get_model_args(self):
+    def get_model_args(self) -> Optional[Dict[str, Any]]:
+        """Getter method to get model arguments from configs
+
+        Returns:
+            Optional[Union[str, Dict[str, Any]]]: Get the model args that are used to instanstiate a model.
+        """
         return self.get_from_configs('ARGUMENTS', param_type='MODEL_PARAMS')
     
-    def get_build_model_params(self):
+    def get_build_model_params(self) -> Dict[str, Union[List[Dict[str, Any]], Dict[str, Any]]]:
+        """Getter method to get model params from configs
+
+        Returns:
+            Optional[Union[str, Dict[str, Any]]]: Model params used to build deep model layers.
+        """
         assert self.get_from_configs('SOURCE_MODULE', param_type='MODEL_INFO') == 'keras', (
         "BUILD_MODEL params are only applicable to keras (deep) models")
         
         return self.get_from_configs('BUILD_MODEL', param_type='MODEL_PARAMS')
-

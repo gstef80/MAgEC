@@ -1,39 +1,35 @@
 import os
-import warnings
-from multiprocessing import set_start_method
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+from typing import List
+
+import pandas as pd
 import utils.pipeline_utils as plutils
 from utils.data_tables import DataTables
 from utils.models_container import ModelsContainer
 
 from src.table15.configs import PipelineConfigs
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-
-def run(configs_path: str='./configs/pima_diabetes.yaml'): 
-    """_summary_
-    Application driver method.
+def run(configs_path: str='./configs/pima_diabetes.yaml') -> List[pd.DataFrame]: 
+    """ Application's main driver method. Steps include:
+    1) Setup configurations and pipeline parameters
+    2) Generate input data and supporting metrics
+    3) Build, train and store feature importance of each model
+    4) Generate table by performing feature perturbations for each feature type
+    5) Display and return table
 
     Args:
         configs_path (str, optional): _description_. Defaults to './configs/pima_diabetes.yaml'.
 
-    Returns:
+    Returns: Dict[str, pd.DataFrame]: Dict with feature_type as keys and pandas dataframes representing output tables
     """
     pipeline_configs = PipelineConfigs(configs_path)
-
-    # TODO: adjust spawn method to start WITH multiprocessing. Most likely with mp.Pool()
-    warnings.filterwarnings('ignore')
-    try:
-        set_start_method("spawn")
-    except RuntimeError:
-        pass
     
     data_configs_path = pipeline_configs.get_from_configs("DATA_CONFIGS_PATH", param_type="DATA")
     models_configs_paths = pipeline_configs.get_from_configs('MODEL_CONFIGS_PATHS', param_type='MODELS')
     use_multiprocessing = pipeline_configs.get_from_configs('USE_MULTIPROCESSING', param_type='DEBUGGING',
                                                             default=True)
-    
     
     use_feature_importance_scaling = pipeline_configs.get_from_configs('USE_FEATURE_IMPORTANCE_SCALING', 
                                                                        param_type='MODELS')
@@ -64,13 +60,13 @@ def run(configs_path: str='./configs/pima_diabetes.yaml'):
         if df is not None:
             print(df.head(20))
             
-    return df_logits_out_by_feature_types, all_joined_dfs_by_feature_types
+    return df_logits_out_by_feature_types
 
 
 if __name__ == '__main__':
     
-    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
-    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
+    config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/pima.yaml"
+    # config_path = "/Users/ag46548/dev/github/KaleRP/table15/src/table15/configs/pipeline_configs/stroke.yaml"
     
     if config_path:
         df_logits_out, all_joined_dfs = run(configs_path=config_path)

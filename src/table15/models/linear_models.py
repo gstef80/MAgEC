@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
@@ -11,14 +11,10 @@ from src.table15.models.model import Model
 
 
 class LinearModel(Model):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type)
         self.model_args: Dict[str, Any] = model_args
         self.feature_importances: Dict[str, float]
-    
-    @abstractmethod
-    def instantiate_model(self) -> None:
-        pass
     
     def fit(self, X, y) -> Model:
         self.model.fit(X, y.to_numpy().ravel())
@@ -32,7 +28,7 @@ class LinearModel(Model):
 
 
 class SklearnLogisticRegression(LinearModel):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
         self.model: LogisticRegression = LogisticRegression
     
@@ -48,7 +44,7 @@ class SklearnLogisticRegression(LinearModel):
     
 
 class SklearnLogisticRegressionCV(SklearnLogisticRegression):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
         self.model = LogisticRegressionCV
         

@@ -17,7 +17,7 @@ from src.table15.models.model_factory import ModelFactory
 class ModelsContainer:
     def __init__(self):
         self.models: List[Model] = []
-        self.models_dict: Dict[str, Model] = {}
+        self.models_dict: Dict[str, BaseModel] = {}
         self.model_feat_imp_dict: Dict[str, Dict[str, float]] = defaultdict(dict)
 
     def load_models(self, model_configs_paths: List[str], ensemble_configs_path: Optional[str]=None) -> ModelsContainer:
@@ -30,8 +30,8 @@ class ModelsContainer:
             m_config = ModelConfigs(ensemble_configs_path)
             estimators = [(m.name, m.model) for m in self.models]
             model = self.construct_model(m_config) \
-                .set_estimators(estimators) \
-                .instantiate_ensemble_model()
+                .set_estimators(estimators) # type: ignore
+            model = model.instantiate_ensemble_model() 
             self.models.append(model)
         return self
 

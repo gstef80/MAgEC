@@ -16,7 +16,7 @@ class BaseModel(ABC):
         pass
     
     @abstractmethod
-    def extract_feature_importances(self) -> np.array:
+    def extract_feature_importances(self):
         pass
     
     @abstractmethod
@@ -29,14 +29,8 @@ class Model(BaseModel):
         super().__init__()
         self.name: str = name
         self.model_type: str = model_type
-    
-    def fit(self, X, y) -> Model:
-        return super().fit(X, y)
-    
-    def extract_feature_importances(self) -> np.array:
-        return super().extract_feature_importances()
-    
-    def predict(self, X):
-        return super().predict(X)
+        self.model: Model
 
-            
+    @abstractmethod
+    def instantiate_model(self) -> Model:
+        pass

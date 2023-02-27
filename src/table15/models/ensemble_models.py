@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
@@ -29,7 +29,7 @@ class EnsembleModels(Model):
     
 
 class SklearnRandomForest(EnsembleModels):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
         self.model: Union[RandomForestClassifier, CalibratedClassifierCV] = RandomForestClassifier
         self.is_calibrated_classifier: bool = False
@@ -60,15 +60,15 @@ class SklearnRandomForest(EnsembleModels):
 
 
 class SklearnVotingClassifier(EnsembleModels):
-    def __init__(self, name: str, model_type: str, model_args: Dict[str, Any]) -> None:
+    def __init__(self, name: str, model_type: str, model_args: Optional[Dict[str, Any]]) -> None:
         super().__init__(name, model_type, model_args)
-        self.estimators: List[Model]
+        self.estimators: List[tuple[str, Model]]
         self.model: VotingClassifier = VotingClassifier
             
     def instantiate_model(self) -> SklearnVotingClassifier:
         raise NotImplementedError
     
-    def set_estimators(self, estimators: List[Model]) -> SklearnVotingClassifier:
+    def set_estimators(self, estimators: List[tuple[str, Model]]) -> SklearnVotingClassifier:
         self.estimators = estimators
         return self
     

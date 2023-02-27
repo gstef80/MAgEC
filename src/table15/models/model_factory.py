@@ -10,6 +10,17 @@ from src.table15.models.svm_models import SklearnKernelSVM, SklearnLinearSVM
 class ModelFactory:
     @staticmethod
     def construct_model(model_configs: ModelConfigs) -> Model:
+        """Factory method to build any model, given that it has been implemented.
+
+        Args:
+            model_configs (ModelConfigs): Configs object generated from model configs Yaml.
+
+        Raises:
+            ValueError: If the model is not found based on the description in model_configs, raise an error.
+
+        Returns:
+            Model: A model object that contains one of many implemented model types.
+        """
         model_name = model_configs.get_from_configs('NAME', param_type='MODEL_INFO')
         model_type = model_configs.get_from_configs('TYPE', param_type='MODEL_INFO').lower()
         source_module = model_configs.get_from_configs('SOURCE_MODULE', param_type='MODEL_INFO').lower()
